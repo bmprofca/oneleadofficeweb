@@ -7,7 +7,7 @@ import FormField from '../components/FormField';
 import RefreshButton from '../components/RefreshButton';
 import SearchableSelect from '../components/SearchableSelect';
 import { PanelTableSkeleton } from '../components/Skeleton';
-import { loadLeadsOptions } from '../utils/apiSelect';
+import { loadLeadsOptions, loadProductsOptions } from '../utils/apiSelect';
 import {
   clearFieldError,
   validateForm,
@@ -19,9 +19,11 @@ const emptyForm = {
   description: '',
   remind_at: '',
   lead_id: '',
+  product_id: '',
 };
 
 const schema = {
+  product_id: [validators.required('Please select a product')],
   lead_id: [validators.required('Please select a lead')],
   remind_at: [
     validators.required('Callback date and time is required'),
@@ -35,6 +37,7 @@ export default function Reminders() {
   const [reminders, setReminders] = useState([]);
   const [form, setForm] = useState(emptyForm);
   const [leadLabel, setLeadLabel] = useState('');
+  const [productLabel, setProductLabel] = useState('');
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(true);
   const [confirmDelete, setConfirmDelete] = useState(null);
@@ -74,6 +77,7 @@ export default function Reminders() {
       });
       setForm(emptyForm);
       setLeadLabel('');
+      setProductLabel('');
       setErrors({});
       toast.success('Callback reminder created');
       load();
@@ -108,7 +112,7 @@ export default function Reminders() {
     }
   };
 
-  if (loading) return <PanelTableSkeleton rows={6} cols={6} />;
+  if (loading) return <PanelTableSkeleton rows={6} cols={7} />;
 
   return (
     <div className="page">
@@ -138,6 +142,20 @@ export default function Reminders() {
           <h2>New callback reminder</h2>
         </div>
         <form className="form-grid" onSubmit={handleSubmit} noValidate>
+          <FormField label="Product *" error={errors.product_id}>
+            <SearchableSelect
+              value={form.product_id}
+              valueLabel={productLabel}
+              placeholder="Select product"
+              loadOptions={loadProductsOptions}
+              invalid={Boolean(errors.product_id)}
+              onChange={(val, opt) => {
+                setForm((prev) => ({ ...prev, product_id: val }));
+                setProductLabel(opt?.label || '');
+                setErrors((prev) => clearFieldError(prev, 'product_id'));
+              }}
+            />
+          </FormField>
           <FormField label="Lead *" error={errors.lead_id}>
             <SearchableSelect
               value={form.lead_id}
@@ -146,9 +164,18 @@ export default function Reminders() {
               loadOptions={loadLeadsOptions}
               invalid={Boolean(errors.lead_id)}
               onChange={(val, opt) => {
-                setForm((prev) => ({ ...prev, lead_id: val }));
+                setForm((prev) => ({
+                  ...prev,
+                  lead_id: val,
+                  product_id: opt?.product_id || prev.product_id,
+                }));
                 setLeadLabel(opt?.label || '');
-                setErrors((prev) => clearFieldError(prev, 'lead_id'));
+                if (opt?.product_id) {
+                  setProductLabel(opt.product_name || '');
+                }
+                setErrors((prev) =>
+                  clearFieldError(clearFieldError(prev, 'lead_id'), 'product_id')
+                );
               }}
             />
           </FormField>
@@ -198,6 +225,7 @@ export default function Reminders() {
           <table>
             <thead>
               <tr>
+                <th>Product</th>
                 <th>Lead</th>
                 <th>Phone</th>
                 <th>Title</th>
@@ -209,11 +237,12 @@ export default function Reminders() {
             <tbody>
               {reminders.length === 0 && (
                 <tr>
-                  <td colSpan="6">No callback reminders yet.</td>
+                  <td colSpan="7">No callback reminders yet.</td>
                 </tr>
               )}
               {reminders.map((item) => (
                 <tr key={item.id} className={item.is_completed ? 'row-muted' : ''}>
+                  <td>{item.product_name || '—'}</td>
                   <td>{item.lead_name}</td>
                   <td>{item.lead_phone || '—'}</td>
                   <td>

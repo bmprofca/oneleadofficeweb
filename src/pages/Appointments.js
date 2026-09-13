@@ -9,7 +9,7 @@ import SearchableSelect from '../components/SearchableSelect';
 import { PanelTableSkeleton } from '../components/Skeleton';
 import { useAuth } from '../context/AuthContext';
 import { formatOptionLabel } from '../utils/format';
-import { loadLeadsOptions, loadUsersOptions } from '../utils/apiSelect';
+import { loadLeadsOptions, loadProductsOptions, loadUsersOptions } from '../utils/apiSelect';
 import {
   clearFieldError,
   isEmpty,
@@ -25,6 +25,7 @@ const emptyForm = {
   start_at: '',
   end_at: '',
   lead_id: '',
+  product_id: '',
   assigned_to: '',
   status: 'scheduled',
 };
@@ -44,6 +45,7 @@ const appointmentStatuses = ['scheduled', 'completed', 'cancelled', 'no_show'].m
 }));
 
 const schema = {
+  product_id: [validators.required('Please select a product')],
   title: [
     validators.required('Title is required'),
     validators.minLength(2, 'Title must be at least 2 characters'),
@@ -78,6 +80,7 @@ export default function Appointments() {
   const [appointments, setAppointments] = useState([]);
   const [form, setForm] = useState(emptyForm);
   const [leadLabel, setLeadLabel] = useState('');
+  const [productLabel, setProductLabel] = useState('');
   const [assigneeLabel, setAssigneeLabel] = useState('');
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(true);
@@ -121,6 +124,7 @@ export default function Appointments() {
       });
       setForm(emptyForm);
       setLeadLabel('');
+      setProductLabel('');
       setAssigneeLabel('');
       setErrors({});
       toast.success('Appointment scheduled');
@@ -158,7 +162,7 @@ export default function Appointments() {
     }
   };
 
-  if (loading) return <PanelTableSkeleton rows={6} cols={8} />;
+  if (loading) return <PanelTableSkeleton rows={6} cols={9} />;
 
   return (
     <div className="page">
@@ -199,6 +203,20 @@ export default function Appointments() {
               className={errors.title ? 'invalid' : ''}
             />
           </FormField>
+          <FormField label="Product *" error={errors.product_id}>
+            <SearchableSelect
+              value={form.product_id}
+              valueLabel={productLabel}
+              placeholder="Select product"
+              loadOptions={loadProductsOptions}
+              invalid={Boolean(errors.product_id)}
+              onChange={(val, opt) => {
+                setForm((prev) => ({ ...prev, product_id: val }));
+                setProductLabel(opt?.label || '');
+                setErrors((prev) => clearFieldError(prev, 'product_id'));
+              }}
+            />
+          </FormField>
           <FormField label="Lead" error={errors.lead_id}>
             <SearchableSelect
               value={form.lead_id}
@@ -207,9 +225,18 @@ export default function Appointments() {
               loadOptions={loadLeadsOptions}
               invalid={Boolean(errors.lead_id)}
               onChange={(val, opt) => {
-                setForm((prev) => ({ ...prev, lead_id: val }));
+                setForm((prev) => ({
+                  ...prev,
+                  lead_id: val,
+                  product_id: opt?.product_id || prev.product_id,
+                }));
                 setLeadLabel(opt?.label || '');
-                setErrors((prev) => clearFieldError(prev, 'lead_id'));
+                if (opt?.product_id) {
+                  setProductLabel(opt.product_name || '');
+                }
+                setErrors((prev) =>
+                  clearFieldError(clearFieldError(prev, 'lead_id'), 'product_id')
+                );
               }}
             />
           </FormField>
@@ -300,6 +327,7 @@ export default function Appointments() {
             <thead>
               <tr>
                 <th>Title</th>
+                <th>Product</th>
                 <th>Lead</th>
                 <th>Assigned</th>
                 <th>Platform</th>
@@ -312,12 +340,13 @@ export default function Appointments() {
             <tbody>
               {appointments.length === 0 && (
                 <tr>
-                  <td colSpan="8">No appointments yet.</td>
+                  <td colSpan="9">No appointments yet.</td>
                 </tr>
               )}
               {appointments.map((item) => (
                 <tr key={item.id}>
                   <td>{item.title}</td>
+                  <td>{item.product_name || '—'}</td>
                   <td>{item.lead_name || '—'}</td>
                   <td>{item.assigned_name || 'Unassigned'}</td>
                   <td>

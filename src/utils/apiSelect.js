@@ -39,6 +39,8 @@ export const loadLeadsOptions = createApiLoader('/leads', {
     value: lead.id,
     label: lead.name,
     meta: lead.phone || lead.email || undefined,
+    product_id: lead.product_id != null ? String(lead.product_id) : '',
+    product_name: lead.product_name || '',
   }),
 });
 

@@ -101,7 +101,7 @@ const formatDateTime = (value) => {
   });
 };
 
-const emptyReminder = { title: '', description: '', remind_at: '' };
+const emptyReminder = { title: '', description: '', remind_at: '', product_id: '' };
 const emptyAppointment = {
   title: '',
   description: '',
@@ -110,6 +110,7 @@ const emptyAppointment = {
   start_at: '',
   end_at: '',
   assigned_to: '',
+  product_id: '',
 };
 const emptyEdit = {
   name: '',
@@ -161,7 +162,9 @@ export default function Leads() {
   const [editProductLabel, setEditProductLabel] = useState('');
   const [editAssigneeLabel, setEditAssigneeLabel] = useState('');
   const [reminderForm, setReminderForm] = useState(emptyReminder);
+  const [reminderProductLabel, setReminderProductLabel] = useState('');
   const [appointmentForm, setAppointmentForm] = useState(emptyAppointment);
+  const [appointmentProductLabel, setAppointmentProductLabel] = useState('');
   const [appointmentAssigneeLabel, setAppointmentAssigneeLabel] = useState('');
   const [bulkAssignTo, setBulkAssignTo] = useState('');
   const [bulkStatus, setBulkStatus] = useState('');
@@ -343,14 +346,21 @@ export default function Leads() {
       setEditAssigneeLabel(lead.assigned_name || '');
     }
     if (mode === 'reminder') {
-      setReminderForm({ ...emptyReminder, title: `Callback: ${lead.name}` });
+      setReminderForm({
+        ...emptyReminder,
+        title: `Callback: ${lead.name}`,
+        product_id: lead.product_id != null ? String(lead.product_id) : '',
+      });
+      setReminderProductLabel(lead.product_name || '');
     }
     if (mode === 'appointment') {
       setAppointmentForm({
         ...emptyAppointment,
         title: `Meeting with ${lead.name}`,
         assigned_to: lead.assigned_to || '',
+        product_id: lead.product_id != null ? String(lead.product_id) : '',
       });
+      setAppointmentProductLabel(lead.product_name || '');
       setAppointmentAssigneeLabel(lead.assigned_name || '');
     }
     if (mode === 'status' || mode === 'reminder' || mode === 'appointment') {
@@ -454,6 +464,7 @@ export default function Leads() {
     e.preventDefault();
     const result = validateForm(
       {
+        product_id: [validators.required('Please select a product')],
         remind_at: [
           validators.required('Callback date and time is required'),
           validators.datetime('Select a valid date and time'),
@@ -483,6 +494,7 @@ export default function Leads() {
     e.preventDefault();
     const result = validateForm(
       {
+        product_id: [validators.required('Please select a product')],
         title: [
           validators.required('Title is required'),
           validators.minLength(2, 'Title must be at least 2 characters'),
@@ -1254,6 +1266,20 @@ export default function Leads() {
           <FormField label="Lead" className="full">
             <input value={manageLead?.name || ''} disabled />
           </FormField>
+          <FormField label="Product *" error={formErrors.product_id}>
+            <SearchableSelect
+              value={reminderForm.product_id}
+              valueLabel={reminderProductLabel}
+              placeholder="Select product"
+              loadOptions={loadProductsOptions}
+              invalid={Boolean(formErrors.product_id)}
+              onChange={(val, opt) => {
+                setReminderForm((p) => ({ ...p, product_id: val }));
+                setReminderProductLabel(opt?.label || '');
+                setFormErrors((prev) => clearFieldError(prev, 'product_id'));
+              }}
+            />
+          </FormField>
           <FormField label="Call back at *" error={formErrors.remind_at}>
             <DateTimePicker
               mode="datetime"
@@ -1304,6 +1330,7 @@ export default function Leads() {
                     <small className="history-meta">{formatDateTime(row.remind_at)}</small>
                   </div>
                   <small className="history-meta">
+                    {row.product_name ? `${row.product_name} · ` : ''}
                     {row.is_completed ? 'Completed' : 'Pending'}
                     {row.user_name ? ` · ${row.user_name}` : ''}
                   </small>
@@ -1337,6 +1364,20 @@ export default function Leads() {
         >
           <FormField label="Lead" className="full">
             <input value={manageLead?.name || ''} disabled />
+          </FormField>
+          <FormField label="Product *" error={formErrors.product_id}>
+            <SearchableSelect
+              value={appointmentForm.product_id}
+              valueLabel={appointmentProductLabel}
+              placeholder="Select product"
+              loadOptions={loadProductsOptions}
+              invalid={Boolean(formErrors.product_id)}
+              onChange={(val, opt) => {
+                setAppointmentForm((p) => ({ ...p, product_id: val }));
+                setAppointmentProductLabel(opt?.label || '');
+                setFormErrors((prev) => clearFieldError(prev, 'product_id'));
+              }}
+            />
           </FormField>
           <FormField label="Title *" error={formErrors.title}>
             <input
@@ -1427,6 +1468,7 @@ export default function Leads() {
                     <small className="history-meta">{formatDateTime(row.start_at)}</small>
                   </div>
                   <small className="history-meta">
+                    {row.product_name ? `${row.product_name} · ` : ''}
                     {formatOptionLabel(row.status)}
                     {row.assigned_name ? ` · ${row.assigned_name}` : ''}
                   </small>
