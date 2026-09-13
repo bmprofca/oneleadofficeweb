@@ -3,6 +3,11 @@ import api from '../api/client';
 
 const AuthContext = createContext(null);
 
+function clearAuthStorage() {
+  localStorage.removeItem('onelead_token');
+  localStorage.removeItem('onelead_user');
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => {
     try {
@@ -27,8 +32,7 @@ export function AuthProvider({ children }) {
       } catch {
         setUser(null);
         setToken(null);
-        localStorage.removeItem('onelead_token');
-        localStorage.removeItem('onelead_user');
+        clearAuthStorage();
       } finally {
         setLoading(false);
       }
@@ -50,11 +54,18 @@ export function AuthProvider({ children }) {
     return data.user;
   };
 
-  const logout = () => {
-    localStorage.removeItem('onelead_token');
-    localStorage.removeItem('onelead_user');
-    setToken(null);
-    setUser(null);
+  const logout = async () => {
+    try {
+      if (localStorage.getItem('onelead_token')) {
+        await api.post('/auth/logout');
+      }
+    } catch {
+      // Still clear local session if the API call fails
+    } finally {
+      clearAuthStorage();
+      setToken(null);
+      setUser(null);
+    }
   };
 
   const setUserFromProfile = (nextUser) => {

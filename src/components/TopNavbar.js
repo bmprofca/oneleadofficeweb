@@ -46,8 +46,8 @@ export default function TopNavbar({ onMenuClick }) {
     return () => document.removeEventListener('mousedown', onClick);
   }, []);
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     navigate('/login');
   };
 

@@ -1,6 +1,25 @@
-# Getting Started with Create React App
+# OneLead Office
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+React (CRA) frontend for OneLead.
+
+## Environment
+
+Env files are local-only (not committed). Copy from `.env.example`:
+
+```bash
+cp .env.example .env.development
+```
+
+| File | Used by | API base |
+|------|---------|----------|
+| `.env.development` | `npm start` | `http://localhost:5823/api` |
+| `.env.production` | `npm run build` | `https://leadserver.onesaas.in/api` |
+
+Create `.env.production` locally with:
+
+```
+REACT_APP_API_URL=https://leadserver.onesaas.in/api
+```
 
 ## Available Scripts
 
@@ -8,8 +27,7 @@ In the project directory, you can run:
 
 ### `npm start`
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+Runs the app in development mode on [http://localhost:3719](http://localhost:3719).
 
 The page will reload when you make changes.\
 You may also see any lint errors in the console.
