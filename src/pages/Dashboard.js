@@ -39,6 +39,7 @@ const STATUS_COLORS = {
   negotiation: '#ca8a04',
   won: '#059669',
   lost: '#e11d48',
+  not_interested: '#64748b',
 };
 
 export default function Dashboard() {

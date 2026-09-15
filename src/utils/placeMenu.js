@@ -1,4 +1,4 @@
-/** Place a fixed dropdown relative to an anchor rect. */
+/** Place a fixed dropdown relative to an anchor rect, kept fully on-screen. */
 export function placeFixedMenu(anchorRect, {
   menuWidth = 220,
   menuHeight = 280,
@@ -7,39 +7,47 @@ export function placeFixedMenu(anchorRect, {
 } = {}) {
   const vw = window.innerWidth;
   const vh = window.innerHeight;
-  const spaceBelow = vh - anchorRect.bottom;
-  const spaceAbove = anchorRect.top;
+  const margin = 8;
+
+  const spaceBelow = vh - anchorRect.bottom - gap - margin;
+  const spaceAbove = anchorRect.top - gap - margin;
 
   let openUp = prefer === 'up';
   if (prefer === 'auto') {
-    openUp = spaceBelow < menuHeight + gap && spaceAbove > spaceBelow;
+    openUp = spaceBelow < Math.min(menuHeight, 220) && spaceAbove > spaceBelow;
   } else if (prefer === 'down') {
     openUp = false;
   }
 
-  const available = openUp ? spaceAbove - gap - 8 : spaceBelow - gap - 8;
-  const maxHeight = Math.max(160, Math.min(menuHeight, available));
-
-  const left = Math.min(
-    Math.max(8, anchorRect.left),
-    Math.max(8, vw - menuWidth - 8)
+  const available = openUp ? spaceAbove : spaceBelow;
+  const maxHeight = Math.max(
+    160,
+    Math.min(menuHeight, available > 120 ? available : vh - margin * 2)
   );
 
-  const style = {
-    position: 'fixed',
-    left,
-    width: menuWidth,
+  const left = Math.min(
+    Math.max(margin, anchorRect.left),
+    Math.max(margin, vw - menuWidth - margin)
+  );
+
+  let top = openUp
+    ? anchorRect.top - gap - maxHeight
+    : anchorRect.bottom + gap;
+
+  // Keep the full panel (including footer / Apply) inside the viewport
+  top = Math.min(Math.max(margin, top), Math.max(margin, vh - maxHeight - margin));
+
+  return {
+    style: {
+      position: 'fixed',
+      left,
+      top,
+      width: menuWidth,
+      maxHeight,
+      overflowY: 'auto',
+      zIndex: 10050,
+    },
+    openUp,
     maxHeight,
-    zIndex: 10050,
   };
-
-  if (openUp) {
-    style.bottom = vh - anchorRect.top + gap;
-    style.top = 'auto';
-  } else {
-    style.top = anchorRect.bottom + gap;
-    style.bottom = 'auto';
-  }
-
-  return { style, openUp, maxHeight };
 }

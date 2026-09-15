@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { FiChevronLeft, FiChevronRight } from 'react-icons/fi';
-import { formatOptionLabel } from '../utils/format';
+import { formatOptionLabel, parseAppDate } from '../utils/format';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -47,10 +47,8 @@ export default function AppointmentsCalendar({ appointments = [] }) {
   const byDay = useMemo(() => {
     const map = new Map();
     appointments.forEach((item) => {
-      const raw = item.start_at;
-      if (!raw) return;
-      const date = new Date(typeof raw === 'string' ? raw.replace(' ', 'T') : raw);
-      if (Number.isNaN(date.getTime())) return;
+      const date = parseAppDate(item.start_at);
+      if (!date) return;
       const key = dayKey(startOfDay(date));
       if (!map.has(key)) map.set(key, []);
       map.get(key).push({ ...item, _date: date });
@@ -61,9 +59,10 @@ export default function AppointmentsCalendar({ appointments = [] }) {
 
   const selectedKey = dayKey(anchor);
   const selectedItems = byDay.get(selectedKey) || [];
-  const monthLabel = anchor.toLocaleDateString(undefined, {
+  const monthLabel = anchor.toLocaleDateString('en-IN', {
     month: 'long',
     year: 'numeric',
+    timeZone: 'Asia/Kolkata',
   });
 
   return (

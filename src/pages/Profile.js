@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import ConfirmModal from '../components/ConfirmModal';
 import FormField from '../components/FormField';
 import RefreshButton from '../components/RefreshButton';
-import { formatOptionLabel } from '../utils/format';
+import { formatDateTime, formatOptionLabel } from '../utils/format';
 import {
   clearFieldError,
   validateForm,
@@ -15,13 +15,7 @@ import {
 } from '../utils/validation';
 
 function formatWhen(value) {
-  if (!value) return '—';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '—';
-  return date.toLocaleString(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  });
+  return formatDateTime(value);
 }
 
 export default function Profile() {

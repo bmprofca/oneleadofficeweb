@@ -21,6 +21,8 @@ import {
   FiActivity,
   FiFile,
   FiCheck,
+  FiMessageCircle,
+  FiPlus,
 } from 'react-icons/fi';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
@@ -34,7 +36,7 @@ import DateTimePicker from '../components/DateTimePicker';
 import FormField from '../components/FormField';
 import RefreshButton from '../components/RefreshButton';
 import { LeadsSkeleton, SkeletonTable } from '../components/Skeleton';
-import { formatOptionLabel } from '../utils/format';
+import { formatDateTime, formatOptionLabel, parseAppDate } from '../utils/format';
 import { loadProductsOptions, loadUsersOptions } from '../utils/apiSelect';
 import {
   clearFieldError,
@@ -43,7 +45,16 @@ import {
   validators,
 } from '../utils/validation';
 
-const statuses = ['new', 'contacted', 'qualified', 'proposal', 'negotiation', 'won', 'lost'];
+const statuses = [
+  'new',
+  'contacted',
+  'qualified',
+  'proposal',
+  'negotiation',
+  'won',
+  'lost',
+  'not_interested',
+];
 const statusOptions = statuses.map((s) => ({ value: s, label: formatOptionLabel(s) }));
 const platformOptions = ['call', 'meet', 'zoom', 'teams', 'in_person', 'other'].map((p) => ({
   value: p,
@@ -52,10 +63,10 @@ const platformOptions = ['call', 'meet', 'zoom', 'teams', 'in_person', 'other'].
 
 const formatCallback = (value) => {
   if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
+  const date = parseAppDate(value);
+  if (!date) return null;
   return {
-    label: date.toLocaleString(undefined, {
+    label: formatDateTime(date, {
       month: 'short',
       day: 'numeric',
       hour: '2-digit',
@@ -85,20 +96,6 @@ const loadAssigneeFilterOptions = async (args) => {
     };
   }
   return result;
-};
-
-const formatDateTime = (value) => {
-  if (!value) return '—';
-  const raw = typeof value === 'string' ? value.replace(' ', 'T') : value;
-  const date = new Date(raw);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return date.toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
 };
 
 const emptyReminder = { title: '', description: '', remind_at: '', product_id: '' };
@@ -146,6 +143,20 @@ export default function Leads() {
   const [totalPages, setTotalPages] = useState(1);
 
   const [importOpen, setImportOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createForm, setCreateForm] = useState({
+    name: '',
+    phone: '',
+    email: '',
+    address: '',
+    website: '',
+    product_id: '',
+    assigned_to: '',
+    status: 'new',
+    notes: '',
+  });
+  const [createProductLabel, setCreateProductLabel] = useState('');
+  const [createAssigneeLabel, setCreateAssigneeLabel] = useState('');
   const [importProductIds, setImportProductIds] = useState([]);
   const [importProductLabels, setImportProductLabels] = useState([]);
   const [file, setFile] = useState(null);
@@ -157,7 +168,7 @@ export default function Leads() {
 
   const [manageLead, setManageLead] = useState(null);
   const [manageMode, setManageMode] = useState(null);
-  const [statusForm, setStatusForm] = useState({ status: 'new' });
+  const [statusForm, setStatusForm] = useState({ status: 'new', note: '' });
   const [editForm, setEditForm] = useState(emptyEdit);
   const [editProductLabel, setEditProductLabel] = useState('');
   const [editAssigneeLabel, setEditAssigneeLabel] = useState('');
@@ -168,6 +179,7 @@ export default function Leads() {
   const [appointmentAssigneeLabel, setAppointmentAssigneeLabel] = useState('');
   const [bulkAssignTo, setBulkAssignTo] = useState('');
   const [bulkStatus, setBulkStatus] = useState('');
+  const [bulkStatusNote, setBulkStatusNote] = useState('');
   const [formErrors, setFormErrors] = useState({});
 
   const [confirmDelete, setConfirmDelete] = useState(null);
@@ -330,7 +342,7 @@ export default function Leads() {
     setManageLead(lead);
     setManageMode(mode);
     setFormErrors({});
-    if (mode === 'status') setStatusForm({ status: lead.status || 'new' });
+    if (mode === 'status') setStatusForm({ status: lead.status || 'new', note: '' });
     if (mode === 'edit') {
       setEditForm({
         name: lead.name || '',
@@ -413,13 +425,31 @@ export default function Leads() {
     if (!result.valid) return;
 
     try {
-      await api.put(`/leads/${manageLead.id}`, { status: statusForm.status });
+      await api.put(`/leads/${manageLead.id}`, {
+        status: statusForm.status,
+        status_note: statusForm.note || null,
+      });
       toast.success('Status updated');
       await loadManageHistory(manageLead, 'status');
       closeManage();
       loadLeads();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Update failed');
+    }
+  };
+
+  const toggleWhatsapp = async (lead) => {
+    const next = lead.whatsapp_active ? 0 : 1;
+    try {
+      await api.put(`/leads/${lead.id}`, { whatsapp_active: next });
+      setLeads((prev) =>
+        prev.map((row) =>
+          row.id === lead.id ? { ...row, whatsapp_active: next } : row
+        )
+      );
+      toast.success(next ? 'WhatsApp marked active' : 'WhatsApp marked inactive');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update WhatsApp');
     }
   };
 
@@ -514,9 +544,9 @@ export default function Leads() {
           validators.datetime('Select a valid end date and time'),
           validators.custom((value, values) => {
             if (isEmpty(value) || isEmpty(values.start_at)) return '';
-            const start = new Date(String(values.start_at).replace(' ', 'T')).getTime();
-            const end = new Date(String(value).replace(' ', 'T')).getTime();
-            if (Number.isNaN(start) || Number.isNaN(end)) return '';
+            const start = parseAppDate(values.start_at)?.getTime();
+            const end = parseAppDate(value)?.getTime();
+            if (!start || !end) return '';
             return end < start ? 'End time must be after start time' : '';
           }),
         ],
@@ -590,6 +620,7 @@ export default function Leads() {
       setFabOpen(false);
       setBulkAssignTo('');
       setBulkStatus('');
+      setBulkStatusNote('');
       loadLeads();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Bulk action failed');
@@ -625,6 +656,30 @@ export default function Leads() {
               }
             }}
           />
+          <button
+            type="button"
+            className="btn"
+            onClick={() => {
+              setCreateForm({
+                name: '',
+                phone: '',
+                email: '',
+                address: '',
+                website: '',
+                product_id: '',
+                assigned_to: '',
+                status: 'new',
+                notes: '',
+              });
+              setCreateProductLabel('');
+              setCreateAssigneeLabel('');
+              setFormErrors({});
+              setCreateOpen(true);
+            }}
+          >
+            <FiPlus size={15} />
+            Add lead
+          </button>
           <button type="button" className="btn primary" onClick={() => {
             setFormErrors({});
             setImportOpen(true);
@@ -726,6 +781,7 @@ export default function Leads() {
                 <th className="col-product">Product</th>
                 <th className="col-contact">Contact</th>
                 <th className="col-status">Status</th>
+                <th className="col-whatsapp">WhatsApp</th>
                 <th className="col-callback">Next callback</th>
                 {hasRole('admin') && <th className="col-assigned">Assigned</th>}
                 <th className="actions-col">Actions</th>
@@ -734,7 +790,7 @@ export default function Leads() {
             <tbody>
               {leads.length === 0 && (
                 <tr>
-                  <td colSpan={hasRole('admin') ? 8 : 7}>
+                  <td colSpan={hasRole('admin') ? 9 : 8}>
                     No leads found. Import an Excel or CSV file to begin.
                   </td>
                 </tr>
@@ -776,6 +832,41 @@ export default function Leads() {
                       }}
                     >
                       {formatOptionLabel(lead.status)}
+                    </button>
+                  </td>
+                  <td className="col-whatsapp">
+                    <button
+                      type="button"
+                      className={`whatsapp-toggle ${
+                        lead.whatsapp_active ? 'active' : 'inactive'
+                      }`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleWhatsapp(lead);
+                      }}
+                      title={
+                        lead.whatsapp_active
+                          ? 'WhatsApp active — click to mark inactive'
+                          : 'WhatsApp inactive — click to mark active'
+                      }
+                      aria-label={
+                        lead.whatsapp_active
+                          ? 'WhatsApp active — click to mark inactive'
+                          : 'WhatsApp inactive — click to mark active'
+                      }
+                      aria-pressed={!!lead.whatsapp_active}
+                    >
+                      <FiMessageCircle size={16} />
+                      <span
+                        className={`whatsapp-check-badge ${
+                          lead.whatsapp_active ? 'checked' : ''
+                        }`}
+                        aria-hidden="true"
+                      >
+                        {lead.whatsapp_active ? (
+                          <FiCheck size={9} strokeWidth={3} />
+                        ) : null}
+                      </span>
                     </button>
                   </td>
                   <td className="col-callback">
@@ -900,6 +991,18 @@ export default function Leads() {
                   <button type="button" onClick={() => setBulkModal('status')}>
                     <FiLayers size={14} /> Status
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => runBulk('whatsapp', { whatsapp_active: true })}
+                  >
+                    <FiMessageCircle size={14} /> WhatsApp Active
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => runBulk('whatsapp', { whatsapp_active: false })}
+                  >
+                    <FiMessageCircle size={14} /> WhatsApp Inactive
+                  </button>
                   {hasRole('admin') && (
                     <button
                       type="button"
@@ -932,6 +1035,181 @@ export default function Leads() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <Modal
+        open={createOpen}
+        title="Add lead"
+        size="lg"
+        onClose={() => {
+          setCreateOpen(false);
+          setFormErrors({});
+        }}
+        footer={
+          <>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                setCreateOpen(false);
+                setFormErrors({});
+              }}
+            >
+              Cancel
+            </button>
+            <button type="submit" form="create-lead-form" className="btn primary">
+              Create lead
+            </button>
+          </>
+        }
+      >
+        <form
+          id="create-lead-form"
+          className="form-grid"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            const result = validateForm(
+              {
+                name: [
+                  validators.required('Name is required'),
+                  validators.minLength(2, 'Name must be at least 2 characters'),
+                ],
+                product_id: [validators.required('Please select a product')],
+                email: [validators.email('Enter a valid email address')],
+                phone: [
+                  validators.custom((value) => {
+                    if (!value) return '';
+                    const digits = String(value).replace(/\D/g, '');
+                    return digits.length >= 7 ? '' : 'Enter a valid phone number';
+                  }),
+                ],
+                status: [
+                  validators.required('Status is required'),
+                  validators.oneOf(statuses, 'Select a valid status'),
+                ],
+              },
+              createForm
+            );
+            setFormErrors(result.errors);
+            if (!result.valid) return;
+
+            try {
+              await api.post('/leads', {
+                ...createForm,
+                product_id: createForm.product_id,
+                assigned_to: hasRole('admin')
+                  ? createForm.assigned_to || null
+                  : undefined,
+              });
+              toast.success('Lead created');
+              setCreateOpen(false);
+              loadLeads({ page: 1 });
+            } catch (err) {
+              toast.error(err.response?.data?.message || 'Failed to create lead');
+            }
+          }}
+          noValidate
+        >
+          <FormField label="Name *" error={formErrors.name}>
+            <input
+              value={createForm.name}
+              onChange={(e) => {
+                setCreateForm((p) => ({ ...p, name: e.target.value }));
+                setFormErrors((prev) => clearFieldError(prev, 'name'));
+              }}
+              placeholder="Lead name"
+              className={formErrors.name ? 'invalid' : ''}
+            />
+          </FormField>
+          <FormField label="Phone" error={formErrors.phone}>
+            <input
+              value={createForm.phone}
+              onChange={(e) => {
+                setCreateForm((p) => ({ ...p, phone: e.target.value }));
+                setFormErrors((prev) => clearFieldError(prev, 'phone'));
+              }}
+              placeholder="Mobile number"
+              className={formErrors.phone ? 'invalid' : ''}
+            />
+          </FormField>
+          <FormField label="Email" error={formErrors.email}>
+            <input
+              value={createForm.email}
+              onChange={(e) => {
+                setCreateForm((p) => ({ ...p, email: e.target.value }));
+                setFormErrors((prev) => clearFieldError(prev, 'email'));
+              }}
+              placeholder="Email"
+              className={formErrors.email ? 'invalid' : ''}
+            />
+          </FormField>
+          <FormField label="Product *" error={formErrors.product_id}>
+            <SearchableSelect
+              value={createForm.product_id}
+              valueLabel={createProductLabel}
+              placeholder="Select product"
+              loadOptions={loadProductsOptions}
+              invalid={Boolean(formErrors.product_id)}
+              onChange={(val, opt) => {
+                setCreateForm((p) => ({ ...p, product_id: val }));
+                setCreateProductLabel(opt?.label || '');
+                setFormErrors((prev) => clearFieldError(prev, 'product_id'));
+              }}
+            />
+          </FormField>
+          <FormField label="Status" error={formErrors.status}>
+            <SearchableSelect
+              value={createForm.status}
+              options={statusOptions}
+              clearable={false}
+              invalid={Boolean(formErrors.status)}
+              onChange={(val) => {
+                setCreateForm((p) => ({ ...p, status: val || 'new' }));
+                setFormErrors((prev) => clearFieldError(prev, 'status'));
+              }}
+            />
+          </FormField>
+          {hasRole('admin') && (
+            <FormField label="Assigned to" error={formErrors.assigned_to}>
+              <SearchableSelect
+                value={createForm.assigned_to}
+                valueLabel={createAssigneeLabel}
+                placeholder="Optional — assign sales staff"
+                clearable
+                loadOptions={loadUsersOptions}
+                invalid={Boolean(formErrors.assigned_to)}
+                onChange={(val, opt) => {
+                  setCreateForm((p) => ({ ...p, assigned_to: val }));
+                  setCreateAssigneeLabel(opt?.label || '');
+                  setFormErrors((prev) => clearFieldError(prev, 'assigned_to'));
+                }}
+              />
+            </FormField>
+          )}
+          <FormField label="Website" error={formErrors.website}>
+            <input
+              value={createForm.website}
+              onChange={(e) => setCreateForm((p) => ({ ...p, website: e.target.value }))}
+              placeholder="Website"
+            />
+          </FormField>
+          <FormField label="Address" className="full" error={formErrors.address}>
+            <textarea
+              rows="2"
+              value={createForm.address}
+              onChange={(e) => setCreateForm((p) => ({ ...p, address: e.target.value }))}
+              placeholder="Address"
+            />
+          </FormField>
+          <FormField label="Notes" className="full" error={formErrors.notes}>
+            <textarea
+              rows="3"
+              value={createForm.notes}
+              onChange={(e) => setCreateForm((p) => ({ ...p, notes: e.target.value }))}
+              placeholder="Optional notes"
+            />
+          </FormField>
+        </form>
+      </Modal>
 
       <Modal
         open={importOpen}
@@ -1047,6 +1325,10 @@ export default function Leads() {
             {[
               ['Name', manageLead.name],
               ['Status', formatOptionLabel(manageLead.status)],
+              [
+                'WhatsApp',
+                manageLead.whatsapp_active ? 'Active' : 'Inactive',
+              ],
               ['Product', manageLead.product_name || '—'],
               ['Assigned', manageLead.assigned_name || 'Unassigned'],
               ['Phone', manageLead.phone || '—'],
@@ -1092,9 +1374,19 @@ export default function Leads() {
               clearable={false}
               invalid={Boolean(formErrors.status)}
               onChange={(val) => {
-                setStatusForm({ status: val || 'new' });
+                setStatusForm((prev) => ({ ...prev, status: val || 'new' }));
                 setFormErrors((prev) => clearFieldError(prev, 'status'));
               }}
+            />
+          </FormField>
+          <FormField label="Note (optional)" className="full">
+            <textarea
+              rows="3"
+              value={statusForm.note}
+              onChange={(e) =>
+                setStatusForm((prev) => ({ ...prev, note: e.target.value }))
+              }
+              placeholder="Optional note about this status change"
             />
           </FormField>
         </form>
@@ -1118,6 +1410,7 @@ export default function Leads() {
                   <small className="history-meta">
                     {row.changed_by_name ? `By ${row.changed_by_name}` : 'System'}
                   </small>
+                  {row.note ? <p className="history-note">{row.note}</p> : null}
                 </div>
               ))}
             </div>
@@ -1570,7 +1863,10 @@ export default function Leads() {
                 );
                 setFormErrors(result.errors);
                 if (!result.valid) return;
-                runBulk('status', { status: bulkStatus });
+                runBulk('status', {
+                  status: bulkStatus,
+                  note: bulkStatusNote || null,
+                });
               }}
             >
               Update status
@@ -1588,6 +1884,14 @@ export default function Leads() {
               setBulkStatus(val);
               setFormErrors((prev) => clearFieldError(prev, 'status'));
             }}
+          />
+        </FormField>
+        <FormField label="Note (optional)" className="full">
+          <textarea
+            rows="3"
+            value={bulkStatusNote}
+            onChange={(e) => setBulkStatusNote(e.target.value)}
+            placeholder="Optional note for this status change"
           />
         </FormField>
       </Modal>

@@ -1,12 +1,17 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
+import { FiBell, FiCheck, FiEdit2, FiPlus, FiTrash2 } from 'react-icons/fi';
 import api from '../api/client';
-import DateTimePicker from '../components/DateTimePicker';
+import ActionMenu from '../components/ActionMenu';
 import ConfirmModal from '../components/ConfirmModal';
+import DateTimePicker from '../components/DateTimePicker';
 import FormField from '../components/FormField';
+import Modal from '../components/Modal';
+import Pagination from '../components/Pagination';
 import RefreshButton from '../components/RefreshButton';
 import SearchableSelect from '../components/SearchableSelect';
-import { PanelTableSkeleton } from '../components/Skeleton';
+import { PanelTableSkeleton, SkeletonTable } from '../components/Skeleton';
+import { formatDateTime } from '../utils/format';
 import { loadLeadsOptions, loadProductsOptions } from '../utils/apiSelect';
 import {
   clearFieldError,
@@ -32,6 +37,10 @@ const schema = {
 };
 
 const toSqlDateTime = (value) => (value ? String(value).replace('T', ' ') : value);
+const toPickerValue = (value) => {
+  if (!value) return '';
+  return String(value).replace(' ', 'T').slice(0, 16);
+};
 
 export default function Reminders() {
   const [reminders, setReminders] = useState([]);
@@ -40,28 +49,78 @@ export default function Reminders() {
   const [productLabel, setProductLabel] = useState('');
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(true);
+  const [tableLoading, setTableLoading] = useState(false);
+  const [modalMode, setModalMode] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(20);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
-      const reminderRes = await api.get('/reminders');
-      setReminders(reminderRes.data);
+      setTableLoading(true);
+      const { data } = await api.get('/reminders', { params: { page, limit } });
+      if (Array.isArray(data)) {
+        setReminders(data);
+        setTotal(data.length);
+        setTotalPages(1);
+      } else {
+        setReminders(data.items || []);
+        setTotal(data.total || 0);
+        setTotalPages(data.totalPages || 1);
+      }
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to load reminders');
     } finally {
+      setTableLoading(false);
       setLoading(false);
     }
-  };
+  }, [page, limit]);
 
   useEffect(() => {
     load();
-  }, []);
+  }, [load]);
 
   const onChange = (e) => {
     const { name, value } = e.target;
     setForm((prev) => ({ ...prev, [name]: value }));
     setErrors((prev) => clearFieldError(prev, name));
+  };
+
+  const closeModal = () => {
+    setModalMode(null);
+    setEditingId(null);
+    setForm(emptyForm);
+    setLeadLabel('');
+    setProductLabel('');
+    setErrors({});
+  };
+
+  const openCreate = () => {
+    setEditingId(null);
+    setForm(emptyForm);
+    setLeadLabel('');
+    setProductLabel('');
+    setErrors({});
+    setModalMode('create');
+  };
+
+  const openEdit = (item) => {
+    setEditingId(item.id);
+    setForm({
+      title: item.title || '',
+      description: item.description || '',
+      remind_at: toPickerValue(item.remind_at),
+      lead_id: item.lead_id || '',
+      product_id: item.product_id != null ? String(item.product_id) : '',
+    });
+    setLeadLabel(item.lead_name || '');
+    setProductLabel(item.product_name || '');
+    setErrors({});
+    setModalMode('edit');
   };
 
   const handleSubmit = async (e) => {
@@ -70,31 +129,38 @@ export default function Reminders() {
     setErrors(result.errors);
     if (!result.valid) return;
 
+    const payload = {
+      ...form,
+      remind_at: toSqlDateTime(form.remind_at),
+    };
+
     try {
-      await api.post('/reminders', {
-        ...form,
-        remind_at: toSqlDateTime(form.remind_at),
-      });
-      setForm(emptyForm);
-      setLeadLabel('');
-      setProductLabel('');
-      setErrors({});
-      toast.success('Callback reminder created');
+      if (modalMode === 'edit' && editingId) {
+        await api.put(`/reminders/${editingId}`, payload);
+        toast.success('Reminder updated');
+      } else {
+        await api.post('/reminders', payload);
+        toast.success('Callback reminder created');
+      }
+      closeModal();
       load();
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to create reminder');
+      toast.error(
+        err.response?.data?.message ||
+          (modalMode === 'edit' ? 'Failed to update reminder' : 'Failed to create reminder')
+      );
     }
   };
 
   const toggleComplete = async (reminder) => {
-    await api.put(`/reminders/${reminder.id}`, {
-      is_completed: reminder.is_completed ? 0 : 1,
-    });
-    load();
-  };
-
-  const handleDelete = (reminder) => {
-    setConfirmDelete(reminder);
+    try {
+      await api.put(`/reminders/${reminder.id}`, {
+        is_completed: reminder.is_completed ? 0 : 1,
+      });
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update');
+    }
   };
 
   const confirmDeleteAction = async () => {
@@ -112,7 +178,7 @@ export default function Reminders() {
     }
   };
 
-  if (loading) return <PanelTableSkeleton rows={6} cols={7} />;
+  if (loading) return <PanelTableSkeleton rows={8} cols={8} />;
 
   return (
     <div className="page">
@@ -134,14 +200,133 @@ export default function Reminders() {
               }
             }}
           />
+          <button type="button" className="btn primary" onClick={openCreate}>
+            <FiPlus size={16} />
+            New reminder
+          </button>
         </div>
       </header>
 
-      <section className="panel">
+      <section className="panel leads-panel">
         <div className="panel-header">
-          <h2>New callback reminder</h2>
+          <h2>Callback list</h2>
         </div>
-        <form className="form-grid" onSubmit={handleSubmit} noValidate>
+        <div className="table-wrap">
+          {tableLoading ? (
+            <SkeletonTable rows={8} cols={8} />
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th className="col-serial">#</th>
+                  <th>Product</th>
+                  <th>Lead</th>
+                  <th>Phone</th>
+                  <th>Title</th>
+                  <th>Call back at</th>
+                  <th>Status</th>
+                  <th className="actions-col">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {reminders.length === 0 && (
+                  <tr>
+                    <td colSpan="8">No callback reminders yet.</td>
+                  </tr>
+                )}
+                {reminders.map((item, index) => (
+                  <tr key={item.id} className={item.is_completed ? 'row-muted' : ''}>
+                    <td className="col-serial">{(page - 1) * limit + index + 1}</td>
+                    <td>{item.product_name || '—'}</td>
+                    <td>
+                      <strong>{item.lead_name}</strong>
+                    </td>
+                    <td>{item.lead_phone || '—'}</td>
+                    <td>
+                      <strong>{item.title}</strong>
+                      {item.description ? (
+                        <div>
+                          <small>{item.description}</small>
+                        </div>
+                      ) : null}
+                    </td>
+                    <td>{formatDateTime(item.remind_at)}</td>
+                    <td>
+                      <span
+                        className={`status ${
+                          item.is_completed ? 'status-won' : 'status-contacted'
+                        }`}
+                      >
+                        {item.is_completed ? 'Done' : 'Pending'}
+                      </span>
+                    </td>
+                    <td className="actions-col">
+                      <ActionMenu
+                        items={[
+                          {
+                            label: 'Edit',
+                            icon: <FiEdit2 size={14} />,
+                            onClick: () => openEdit(item),
+                          },
+                          {
+                            label: item.is_completed ? 'Mark pending' : 'Mark called',
+                            icon: item.is_completed ? (
+                              <FiBell size={14} />
+                            ) : (
+                              <FiCheck size={14} />
+                            ),
+                            onClick: () => toggleComplete(item),
+                          },
+                          {
+                            label: 'Delete',
+                            icon: <FiTrash2 size={14} />,
+                            danger: true,
+                            onClick: () => setConfirmDelete(item),
+                          },
+                        ]}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <Pagination
+          page={page}
+          totalPages={totalPages}
+          total={total}
+          limit={limit}
+          onPageChange={setPage}
+          onLimitChange={(n) => {
+            setLimit(n);
+            setPage(1);
+          }}
+        />
+      </section>
+
+      <Modal
+        open={Boolean(modalMode)}
+        title={modalMode === 'edit' ? 'Edit reminder' : 'New callback reminder'}
+        onClose={closeModal}
+        footer={
+          <>
+            <button type="button" className="btn" onClick={closeModal}>
+              Cancel
+            </button>
+            <button type="submit" form="reminder-form" className="btn primary">
+              {modalMode === 'edit' ? 'Save changes' : 'Create reminder'}
+            </button>
+          </>
+        }
+      >
+        <form
+          id="reminder-form"
+          className="form-grid"
+          onSubmit={handleSubmit}
+          noValidate
+        >
           <FormField label="Product *" error={errors.product_id}>
             <SearchableSelect
               value={form.product_id}
@@ -170,9 +355,7 @@ export default function Reminders() {
                   product_id: opt?.product_id || prev.product_id,
                 }));
                 setLeadLabel(opt?.label || '');
-                if (opt?.product_id) {
-                  setProductLabel(opt.product_name || '');
-                }
+                if (opt?.product_id) setProductLabel(opt.product_name || '');
                 setErrors((prev) =>
                   clearFieldError(clearFieldError(prev, 'lead_id'), 'product_id')
                 );
@@ -195,7 +378,7 @@ export default function Reminders() {
               name="title"
               value={form.title}
               onChange={onChange}
-              placeholder="Optional title (defaults to Callback: Lead name)"
+              placeholder="Optional title"
               className={errors.title ? 'invalid' : ''}
             />
           </FormField>
@@ -205,72 +388,12 @@ export default function Reminders() {
               rows="3"
               value={form.description}
               onChange={onChange}
-              placeholder="Why they asked for a callback / what to discuss"
+              placeholder="Why they asked for a callback"
               className={errors.description ? 'invalid' : ''}
             />
           </FormField>
-          <div className="full">
-            <button className="btn primary" type="submit">
-              Create callback reminder
-            </button>
-          </div>
         </form>
-      </section>
-
-      <section className="panel">
-        <div className="panel-header">
-          <h2>Callback list</h2>
-        </div>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Product</th>
-                <th>Lead</th>
-                <th>Phone</th>
-                <th>Title</th>
-                <th>Call back at</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {reminders.length === 0 && (
-                <tr>
-                  <td colSpan="7">No callback reminders yet.</td>
-                </tr>
-              )}
-              {reminders.map((item) => (
-                <tr key={item.id} className={item.is_completed ? 'row-muted' : ''}>
-                  <td>{item.product_name || '—'}</td>
-                  <td>{item.lead_name}</td>
-                  <td>{item.lead_phone || '—'}</td>
-                  <td>
-                    <strong>{item.title}</strong>
-                    <div>
-                      <small>{item.description}</small>
-                    </div>
-                  </td>
-                  <td>{new Date(item.remind_at).toLocaleString()}</td>
-                  <td>{item.is_completed ? 'Done' : 'Pending'}</td>
-                  <td className="actions">
-                    <button type="button" className="btn small" onClick={() => toggleComplete(item)}>
-                      {item.is_completed ? 'Mark pending' : 'Mark called'}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn small danger"
-                      onClick={() => handleDelete(item)}
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      </Modal>
 
       <ConfirmModal
         open={Boolean(confirmDelete)}

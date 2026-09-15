@@ -147,15 +147,16 @@ export default function DateTimePicker({
   const popSize = useMemo(() => {
     if (mode === 'time') return { width: 280, height: 320 };
     if (mode === 'date') return { width: 300, height: 320 };
-    return { width: 460, height: 380 };
+    return { width: 460, height: 440 };
   }, [mode]);
 
-  const updatePosition = () => {
+  const updatePosition = (measuredHeight) => {
     if (!triggerRef.current) return;
     const rect = triggerRef.current.getBoundingClientRect();
+    const height = measuredHeight || popRef.current?.offsetHeight || popSize.height;
     const { style } = placeFixedMenu(rect, {
       menuWidth: popSize.width,
-      menuHeight: popSize.height,
+      menuHeight: height,
       gap: 6,
     });
     setPos({
@@ -177,9 +178,11 @@ export default function DateTimePicker({
   useLayoutEffect(() => {
     if (!open) return undefined;
     updatePosition();
-    const frame = requestAnimationFrame(updatePosition);
+    const frame = requestAnimationFrame(() => {
+      updatePosition(popRef.current?.offsetHeight);
+    });
     return () => cancelAnimationFrame(frame);
-  }, [open, mode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, mode, draftDate, draftHour, draftMinute]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!open || mode === 'date') return undefined;

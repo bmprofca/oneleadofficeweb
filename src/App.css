@@ -1046,6 +1046,11 @@ th {
   color: var(--danger);
 }
 
+.status-not_interested {
+  background: color-mix(in srgb, #64748b 16%, var(--surface));
+  color: #475569;
+}
+
 .status-won,
 .status-completed,
 .status-active {
@@ -1532,6 +1537,64 @@ body.select-open .main {
   font-size: var(--fs-sm);
 }
 
+.history-note {
+  margin: 4px 0 0;
+  font-size: var(--fs-sm);
+  color: var(--ink);
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
+.whatsapp-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.whatsapp-toggle:hover {
+  background: var(--surface-2);
+}
+
+.whatsapp-toggle.active {
+  color: #0b6b3a;
+  border-color: color-mix(in srgb, #16a34a 40%, var(--line));
+  background: color-mix(in srgb, #16a34a 12%, var(--surface));
+}
+
+.whatsapp-toggle.inactive {
+  color: var(--muted);
+}
+
+.whatsapp-check-badge {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1.5px solid var(--line);
+  background: var(--surface);
+  color: #fff;
+  box-shadow: 0 0 0 1.5px var(--surface);
+}
+
+.whatsapp-check-badge.checked {
+  border-color: #16a34a;
+  background: #16a34a;
+}
+
 .status-clickable,
 .callback-clickable {
   cursor: pointer;
@@ -1662,7 +1725,7 @@ button.status-clickable {
 }
 
 .leads-panel .col-name {
-  width: 22%;
+  width: 18%;
   white-space: normal;
   word-break: break-word;
   overflow-wrap: anywhere;
@@ -1705,6 +1768,12 @@ button.status-clickable {
   white-space: nowrap;
 }
 
+.leads-panel .col-whatsapp {
+  width: 6%;
+  white-space: nowrap;
+  text-align: center;
+}
+
 .leads-panel .col-callback {
   width: 13%;
   white-space: nowrap;
@@ -1712,7 +1781,7 @@ button.status-clickable {
 }
 
 .leads-panel .col-assigned {
-  width: 12%;
+  width: 10%;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
@@ -1731,11 +1800,15 @@ button.status-clickable {
 }
 
 .leads-page-sales .leads-panel .col-status {
-  width: 12%;
+  width: 11%;
+}
+
+.leads-page-sales .leads-panel .col-whatsapp {
+  width: 6%;
 }
 
 .leads-page-sales .leads-panel .col-callback {
-  width: 14%;
+  width: 13%;
 }
 
 .leads-page-sales .leads-panel .col-callback .callback-set-btn {
@@ -2030,6 +2103,7 @@ button.status-clickable {
   display: flex;
   flex-direction: column;
   max-height: inherit;
+  min-height: 0;
 }
 
 .ss-menu {
@@ -2369,6 +2443,9 @@ button.status-clickable {
   padding: 10px 12px;
   border-top: 1px solid var(--line);
   background: var(--surface-2);
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
 }
 
 .callback-cell {
