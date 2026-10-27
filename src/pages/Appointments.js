@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
+import { Link } from 'react-router-dom';
 import { FiEdit2, FiPlus, FiTrash2 } from 'react-icons/fi';
 import api from '../api/client';
 import ActionMenu from '../components/ActionMenu';
@@ -12,6 +13,10 @@ import RefreshButton from '../components/RefreshButton';
 import SearchableSelect from '../components/SearchableSelect';
 import { PanelTableSkeleton, SkeletonTable } from '../components/Skeleton';
 import { useAuth } from '../context/AuthContext';
+import ContactLinks from '../components/crm/ContactLinks';
+import OwnerChip from '../components/crm/OwnerChip';
+import { mapsLink } from '../utils/crm';
+import '../styles/reminders.css';
 import { formatDateTime, formatOptionLabel, parseAppDate } from '../utils/format';
 import { loadLeadsOptions, loadProductsOptions, loadUsersOptions } from '../utils/apiSelect';
 import {
@@ -85,6 +90,7 @@ const toPickerValue = (value) => {
 
 export default function Appointments() {
   const { hasRole } = useAuth();
+  const isAdmin = hasRole('admin');
   const [appointments, setAppointments] = useState([]);
   const [form, setForm] = useState(emptyForm);
   const [leadLabel, setLeadLabel] = useState('');
@@ -278,7 +284,7 @@ export default function Appointments() {
                   <th>Title</th>
                   <th>Product</th>
                   <th>Lead</th>
-                  <th>Assigned</th>
+                  {isAdmin && <th>Salesman</th>}
                   <th>Platform</th>
                   <th>When</th>
                   <th>Status</th>
@@ -288,7 +294,7 @@ export default function Appointments() {
               <tbody>
                 {appointments.length === 0 && (
                   <tr>
-                    <td colSpan="9">No appointments yet.</td>
+                    <td colSpan={isAdmin ? 9 : 8}>No appointments yet.</td>
                   </tr>
                 )}
                 {appointments.map((item, index) => (
@@ -303,8 +309,31 @@ export default function Appointments() {
                       ) : null}
                     </td>
                     <td>{item.product_name || '—'}</td>
-                    <td>{item.lead_name || '—'}</td>
-                    <td>{item.assigned_name || 'Unassigned'}</td>
+                    <td>
+                      {item.lead_id ? (
+                        <Link to={`/leads/${encodeURIComponent(item.lead_id)}`} className="rem-lead-link">
+                          <strong>{item.lead_name || 'Lead'}</strong>
+                        </Link>
+                      ) : (
+                        '—'
+                      )}
+                      {item.lead_phone ? (
+                        <div>
+                          <small>{item.lead_phone}</small>
+                        </div>
+                      ) : null}
+                      <ContactLinks
+                        className="rem-contact-links"
+                        phone={item.lead_phone}
+                        name={item.lead_name}
+                        map={mapsLink(item, 'lead_')}
+                      />
+                    </td>
+                    {isAdmin && (
+                      <td>
+                        <OwnerChip name={item.assigned_name} />
+                      </td>
+                    )}
                     <td>
                       <span className="status">
                         {platforms.find((p) => p.value === item.platform)?.label ||

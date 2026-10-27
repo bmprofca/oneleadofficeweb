@@ -9,7 +9,10 @@ import Pagination from '../components/Pagination';
 import RefreshButton from '../components/RefreshButton';
 import SearchableSelect from '../components/SearchableSelect';
 import { PanelTableSkeleton } from '../components/Skeleton';
+import Switch from '../components/crm/Switch';
 import { formatOptionLabel } from '../utils/format';
+import { formatRelative } from '../utils/crm';
+import '../styles/leads-upgrade.css';
 import {
   clearFieldError,
   validateForm,
@@ -22,6 +25,7 @@ const emptyForm = {
   role: 'sales',
   phone: '',
   status: 'active',
+  auto_assign: true,
 };
 
 const roleOptions = [
@@ -103,7 +107,10 @@ export default function Users() {
     if (!result.valid) return;
 
     try {
-      await api.post('/users', form);
+      await api.post('/users', {
+        ...form,
+        auto_assign: form.role === 'sales' ? Boolean(form.auto_assign) : false,
+      });
       toast.success('User created');
       closeCreate();
       if (page === 1) load();
@@ -124,6 +131,26 @@ export default function Users() {
       load();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to update user');
+    }
+  };
+
+  const toggleAutoAssign = async (user, next) => {
+    const previous = user.auto_assign;
+    setUsers((prev) =>
+      prev.map((u) => (u.id === user.id ? { ...u, auto_assign: next ? 1 : 0 } : u))
+    );
+    try {
+      await api.put(`/users/${user.id}`, { auto_assign: next });
+      toast.success(
+        next
+          ? `${user.name} will receive auto-assigned leads`
+          : `${user.name} removed from auto-assign`
+      );
+    } catch (err) {
+      setUsers((prev) =>
+        prev.map((u) => (u.id === user.id ? { ...u, auto_assign: previous } : u))
+      );
+      toast.error(err.response?.data?.message || 'Failed to update auto-assign');
     }
   };
 
@@ -182,13 +209,16 @@ export default function Users() {
                   <th>Email</th>
                   <th>Role</th>
                   <th>Status</th>
+                  <th className="lu-col-switch">Auto-assign</th>
+                  <th className="lu-col-num">Open leads</th>
+                  <th className="lu-col-seen">Last seen</th>
                   <th className="actions-col">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {users.length === 0 && (
                   <tr>
-                    <td colSpan="7">No other users yet.</td>
+                    <td colSpan="10">No other users yet.</td>
                   </tr>
                 )}
                 {users.map((user, index) => (
@@ -212,6 +242,25 @@ export default function Users() {
                       >
                         {formatOptionLabel(user.status)}
                       </span>
+                    </td>
+                    <td className="lu-col-switch">
+                      {user.role === 'sales' ? (
+                        <Switch
+                          checked={Boolean(Number(user.auto_assign))}
+                          disabled={user.status !== 'active'}
+                          onChange={(next) => toggleAutoAssign(user, next)}
+                        />
+                      ) : (
+                        <span className="crm-muted">—</span>
+                      )}
+                    </td>
+                    <td className="lu-col-num">
+                      {user.open_leads != null ? Number(user.open_leads).toLocaleString('en-IN') : '—'}
+                    </td>
+                    <td className="lu-col-seen" title={user.last_seen_at || ''}>
+                      {user.last_seen_at ? formatRelative(user.last_seen_at) : (
+                        <span className="crm-muted">Never</span>
+                      )}
                     </td>
                     <td className="actions-col">
                       <ActionMenu
@@ -313,6 +362,18 @@ export default function Users() {
               }}
             />
           </FormField>
+          {form.role === 'sales' && (
+            <FormField
+              className="full"
+              hint="New leads are shared round-robin among sales users with auto-assign on."
+            >
+              <Switch
+                checked={form.auto_assign}
+                onChange={(next) => setForm((prev) => ({ ...prev, auto_assign: next }))}
+                label="Include in auto-assign (round-robin)"
+              />
+            </FormField>
+          )}
         </form>
       </Modal>
     </div>

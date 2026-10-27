@@ -40,7 +40,7 @@ function dayKey(date) {
   return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
 }
 
-export default function AppointmentsCalendar({ appointments = [] }) {
+export default function AppointmentsCalendar({ appointments = [], showOwner = false }) {
   const [anchor, setAnchor] = useState(() => startOfDay(new Date()));
   const { today, days } = useMemo(() => buildCenteredGrid(anchor), [anchor]);
 
@@ -158,6 +158,7 @@ export default function AppointmentsCalendar({ appointments = [] }) {
                       minute: '2-digit',
                     })}
                     {item.lead_name ? ` · ${item.lead_name}` : ''}
+                    {showOwner && item.assigned_name ? ` · ${item.assigned_name}` : ''}
                   </small>
                 </div>
                 <span className={`status status-${item.status}`}>

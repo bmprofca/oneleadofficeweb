@@ -1,0 +1,99 @@
+.rem-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.rem-search {
+  flex: 1 1 260px;
+  max-width: 360px;
+}
+
+.rem-lead-link:hover strong {
+  color: var(--brand);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.rem-overdue {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.rem-relative {
+  display: block;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+
+@media (max-width: 720px) {
+  .rem-toolbar .segmented {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .rem-search {
+    max-width: none;
+  }
+}
+
+/* Date range + salesman filters */
+.rem-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.rem-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
+
+.rem-filter .ss-select.rem-filter-select {
+  width: 190px;
+}
+
+.rem-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rem-range > div {
+  width: 160px;
+}
+
+.rem-range-sep {
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+
+.rem-range-error {
+  color: var(--danger);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+
+.rem-contact-links {
+  display: flex;
+  margin-top: 6px;
+}
+
+@media (max-width: 720px) {
+  .rem-filter,
+  .rem-filter .ss-select.rem-filter-select,
+  .rem-range {
+    width: 100%;
+  }
+
+  .rem-range > div {
+    flex: 1;
+    width: auto;
+  }
+}

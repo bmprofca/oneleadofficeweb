@@ -1,0 +1,291 @@
+/* ===== Audit log page (al-) ===== */
+
+.al-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) repeat(3, minmax(0, 1fr)) repeat(2, minmax(0, 0.9fr));
+  gap: 10px;
+  align-items: end;
+  min-width: 0;
+}
+
+.al-date {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.al-date input.invalid {
+  border-color: var(--danger);
+}
+
+.al-range-error {
+  margin: 0;
+  font-size: var(--fs-xs);
+  font-weight: 550;
+  color: var(--danger);
+}
+
+.al-clear {
+  margin-left: auto;
+}
+
+.al-table {
+  transition: opacity 0.15s ease;
+}
+
+.al-table.al-loading {
+  opacity: 0.55;
+}
+
+.al-table table {
+  min-width: 820px;
+}
+
+.al-table td {
+  vertical-align: top;
+}
+
+.al-col-toggle {
+  width: 36px;
+  padding-left: 8px !important;
+  padding-right: 0 !important;
+}
+
+.al-toggle {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.15s var(--ease), color 0.15s ease, background 0.15s ease;
+}
+
+.al-toggle:hover {
+  color: var(--ink);
+  background: var(--surface-3);
+}
+
+.al-toggle.open {
+  transform: rotate(90deg);
+  color: var(--brand);
+}
+
+.al-toggle:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--brand-ring);
+}
+
+.al-row-expandable {
+  cursor: pointer;
+}
+
+tbody tr.al-row-open,
+tbody tr.al-row-open + .al-detail-row {
+  background: color-mix(in srgb, var(--brand) 4%, var(--surface));
+}
+
+tbody tr.al-row-open td {
+  border-bottom-color: transparent;
+}
+
+.al-col-time,
+.al-col-user {
+  white-space: nowrap;
+}
+
+.al-col-time span,
+.al-col-user strong {
+  display: block;
+}
+
+.al-col-time span {
+  color: var(--ink);
+  font-weight: 550;
+}
+
+.al-col-time small,
+.al-col-user small {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+.al-action {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--tone);
+  background: color-mix(in srgb, var(--tone) 12%, transparent);
+}
+
+.al-entity {
+  display: grid;
+  gap: 2px;
+}
+
+.al-entity-type {
+  color: var(--ink-2);
+  font-weight: 550;
+}
+
+.al-entity small {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.al-entity-link {
+  color: var(--brand);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+[data-theme='dark'] .al-entity-link {
+  color: var(--brand-dark);
+}
+
+.al-entity-link:hover {
+  text-decoration: underline;
+}
+
+.al-col-summary {
+  min-width: 240px;
+  color: var(--ink-2);
+}
+
+.al-col-summary span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.al-change-hint {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+/* Expanded diff */
+.al-detail-row > td {
+  padding: 0 12px 14px 44px;
+}
+
+.al-detail-row:hover {
+  background: color-mix(in srgb, var(--brand) 4%, var(--surface));
+}
+
+.al-diff {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.al-diff table {
+  min-width: 0;
+  font-size: var(--fs-sm);
+}
+
+.al-diff th {
+  padding: 7px 12px;
+  background: var(--surface-2);
+}
+
+.al-diff td {
+  padding: 8px 12px;
+  vertical-align: top;
+  border-bottom: 1px solid var(--line);
+}
+
+.al-diff tbody tr:hover {
+  background: transparent;
+}
+
+.al-diff-field {
+  width: 22%;
+  color: var(--muted);
+  font-weight: 550;
+  white-space: nowrap;
+}
+
+.al-diff-before,
+.al-diff-after {
+  width: 37%;
+  overflow-wrap: anywhere;
+}
+
+.al-diff-before .al-value {
+  color: var(--danger);
+  background: var(--danger-soft);
+  padding: 1px 6px;
+  border-radius: 5px;
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--danger) 45%, transparent);
+}
+
+.al-diff-after .al-value {
+  color: var(--success);
+  background: var(--success-soft);
+  padding: 1px 6px;
+  border-radius: 5px;
+}
+
+.al-diff-arrow {
+  width: 28px;
+  color: var(--subtle);
+  text-align: center;
+}
+
+.al-empty {
+  color: var(--subtle);
+  font-style: italic;
+}
+
+@media (max-width: 1100px) {
+  .al-filters {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .al-search {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 960px) {
+  .al-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .al-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .al-detail-row > td {
+    padding-left: 12px;
+  }
+
+  .al-diff-field {
+    white-space: normal;
+  }
+}

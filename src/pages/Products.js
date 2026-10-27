@@ -13,6 +13,8 @@ import RefreshButton from '../components/RefreshButton';
 import SearchableSelect from '../components/SearchableSelect';
 import { PanelTableSkeleton } from '../components/Skeleton';
 import { formatOptionLabel } from '../utils/format';
+import { formatCurrency } from '../utils/crm';
+import '../styles/leads-upgrade.css';
 import {
   clearFieldError,
   validateForm,
@@ -22,6 +24,7 @@ import {
 const emptyForm = {
   name: '',
   description: '',
+  price: '',
   status: 'active',
 };
 
@@ -39,7 +42,19 @@ const schema = {
     validators.required('Status is required'),
     validators.oneOf(['active', 'inactive'], 'Select a valid status'),
   ],
+  price: [
+    validators.custom((value) => {
+      if (value === '' || value === null || value === undefined) return '';
+      const n = Number(value);
+      return Number.isFinite(n) && n > 0 ? '' : 'Price must be a positive number';
+    }),
+  ],
 };
+
+const toPayload = (form) => ({
+  ...form,
+  price: form.price === '' || form.price === null ? null : Number(form.price),
+});
 
 export default function Products() {
   const { hasRole } = useAuth();
@@ -116,6 +131,7 @@ export default function Products() {
     setForm({
       name: product.name || '',
       description: product.description || '',
+      price: product.price != null ? String(product.price) : '',
       status: product.status || 'active',
     });
     setErrors({});
@@ -143,10 +159,10 @@ export default function Products() {
 
     try {
       if (modalMode === 'edit' && activeProduct) {
-        await api.put(`/products/${activeProduct.id}`, form);
+        await api.put(`/products/${activeProduct.id}`, toPayload(form));
         toast.success('Product updated');
       } else {
-        await api.post('/products', form);
+        await api.post('/products', toPayload(form));
         toast.success('Product created');
       }
       closeModal();
@@ -231,6 +247,7 @@ export default function Products() {
                 <th className="col-serial">#</th>
                 <th className="col-name">Name</th>
                 <th className="col-product">Leads</th>
+                <th className="lu-col-price">Price</th>
                 <th className="col-status">Status</th>
                 <th className="actions-col">Actions</th>
               </tr>
@@ -238,7 +255,7 @@ export default function Products() {
             <tbody>
               {products.length === 0 && (
                 <tr>
-                  <td colSpan="5">No products found.</td>
+                  <td colSpan="6">No products found.</td>
                 </tr>
               )}
               {products.map((product, index) => (
@@ -253,6 +270,9 @@ export default function Products() {
                     ) : null}
                   </td>
                   <td className="col-product">{product.lead_count || 0}</td>
+                  <td className="lu-col-price">
+                    {product.price != null ? formatCurrency(product.price) : <span className="crm-muted">—</span>}
+                  </td>
                   <td className="col-status">
                     <span className={`status status-${product.status}`}>
                       {formatOptionLabel(product.status)}
@@ -345,6 +365,23 @@ export default function Products() {
               }}
             />
           </FormField>
+          <FormField
+            label="Price (₹)"
+            error={errors.price}
+            hint="Optional — used as the default deal value for new leads"
+          >
+            <input
+              name="price"
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="any"
+              value={form.price}
+              onChange={onChange}
+              placeholder="e.g. 25000"
+              className={errors.price ? 'invalid' : ''}
+            />
+          </FormField>
           <FormField label="Description" className="full" error={errors.description}>
             <textarea
               name="description"
@@ -392,6 +429,10 @@ export default function Products() {
                   {formatOptionLabel(activeProduct.status)}
                 </span>
               </strong>
+            </div>
+            <div className="detail-item">
+              <span>Price</span>
+              <strong>{formatCurrency(activeProduct.price)}</strong>
             </div>
             <div className="detail-item">
               <span>Linked leads</span>

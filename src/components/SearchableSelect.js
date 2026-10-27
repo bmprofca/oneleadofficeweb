@@ -45,6 +45,7 @@ export default function SearchableSelect({
   pageSize = 20,
   multiple = false,
   invalid = false,
+  searchable,
 }) {
   const id = useId();
   const rootRef = useRef(null);
@@ -58,6 +59,7 @@ export default function SearchableSelect({
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [highlight, setHighlight] = useState(-1);
   const [menuStyle, setMenuStyle] = useState({
     position: 'fixed',
     top: 0,
@@ -92,6 +94,8 @@ export default function SearchableSelect({
   }, [staticOptions, query, loadOptions]);
 
   const displayOptions = loadOptions ? asyncItems : filteredStatic;
+  // Short static lists (status, priority…) don't need a search box.
+  const showSearch = searchable ?? (Boolean(loadOptions) || staticOptions.length > 7);
 
   useEffect(() => {
     if (Array.isArray(valueLabels)) {
@@ -255,7 +259,7 @@ export default function SearchableSelect({
     updateMenuPosition();
     const frame = requestAnimationFrame(() => {
       updateMenuPosition();
-      searchInputRef.current?.focus({ preventScroll: true });
+      (searchInputRef.current || listRef.current)?.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);
   }, [open, displayOptions.length, updateMenuPosition]);
@@ -298,6 +302,61 @@ export default function SearchableSelect({
     return () => clearTimeout(searchTimer.current);
   }, [open, query, loadOptions]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Keyboard: highlight starts on the selected option (or the first one).
+  useEffect(() => {
+    if (!open) {
+      setHighlight(-1);
+      return;
+    }
+    const selectedIndex = displayOptions.findIndex((o) => selectedValues.includes(String(o.value)));
+    setHighlight(selectedIndex >= 0 && !query ? selectedIndex : displayOptions.length ? 0 : -1);
+  }, [open, query, displayOptions.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!open || highlight < 0) return;
+    listRef.current?.querySelector(`[data-index="${highlight}"]`)?.scrollIntoView({ block: 'nearest' });
+  }, [open, highlight]);
+
+  const closeMenu = (refocus = true) => {
+    setOpen(false);
+    setQuery('');
+    if (refocus) triggerRef.current?.focus({ preventScroll: true });
+  };
+
+  const onMenuKeyDown = (e) => {
+    const last = displayOptions.length - 1;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlight((h) => Math.min(last, h + 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlight((h) => Math.max(0, h - 1));
+    } else if (e.key === 'Home' && !showSearch) {
+      e.preventDefault();
+      setHighlight(0);
+    } else if (e.key === 'End' && !showSearch) {
+      e.preventDefault();
+      setHighlight(last);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const opt = displayOptions[highlight];
+      if (opt) selectOption(opt);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      closeMenu();
+    } else if (e.key === 'Tab') {
+      closeMenu(false);
+    }
+  };
+
+  const onTriggerKeyDown = (e) => {
+    if (!open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+      e.preventDefault();
+      openMenu();
+    }
+  };
+
   const onListScroll = () => {
     const el = listRef.current;
     if (!el || !loadOptions || !hasMore || loading || loadingMoreRef.current) return;
@@ -321,8 +380,7 @@ export default function SearchableSelect({
       return;
     }
     onChange?.(opt.value, opt);
-    setOpen(false);
-    setQuery('');
+    closeMenu();
   };
 
   const clearValue = (e) => {
@@ -357,6 +415,7 @@ export default function SearchableSelect({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-invalid={invalid || undefined}
+        onKeyDown={onTriggerKeyDown}
         onClick={() => {
           if (open) setOpen(false);
           else openMenu();
@@ -394,7 +453,9 @@ export default function SearchableSelect({
               <FiX size={14} />
             </span>
           )}
-          <FiChevronDown size={15} className="ss-chevron" />
+          <span className="ss-chevron-wrap" aria-hidden="true">
+            <FiChevronDown size={14} className="ss-chevron" />
+          </span>
         </span>
       </button>
 
@@ -413,25 +474,30 @@ export default function SearchableSelect({
           {open && (
             <motion.div
               ref={menuRef}
-              className="ss-menu"
+              className={`ss-menu${multiple ? ' is-multiple' : ''}`}
               style={menuStyle}
+              onKeyDown={onMenuKeyDown}
               initial={{ opacity: 0, y: 4 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 4 }}
               transition={{ duration: 0.14 }}
             >
-              <div className="ss-search">
-                <FiSearch size={14} />
-                <input
-                  ref={searchInputRef}
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder={searchPlaceholder}
-                />
-              </div>
+              {showSearch ? (
+                <div className="ss-search">
+                  <FiSearch size={14} />
+                  <input
+                    ref={searchInputRef}
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder={searchPlaceholder}
+                    aria-activedescendant={highlight >= 0 ? `${id}-opt-${highlight}` : undefined}
+                  />
+                </div>
+              ) : null}
               <div
                 className="ss-list hide-scrollbar"
                 role="listbox"
+                tabIndex={-1}
                 aria-multiselectable={multiple}
                 ref={listRef}
                 onScroll={onListScroll}
@@ -445,22 +511,33 @@ export default function SearchableSelect({
                 {!loading && displayOptions.length === 0 && (
                   <div className="ss-empty">No options found</div>
                 )}
-                {displayOptions.map((opt) => {
+                {displayOptions.map((opt, index) => {
                   const active = selectedValues.includes(String(opt.value));
                   return (
                     <button
                       key={opt.value}
+                      id={`${id}-opt-${index}`}
+                      data-index={index}
                       type="button"
                       role="option"
+                      tabIndex={-1}
                       aria-selected={active}
-                      className={`ss-option ${active ? 'active' : ''}`}
+                      className={`ss-option${active ? ' active' : ''}${index === highlight ? ' highlight' : ''}`}
+                      onMouseMove={() => {
+                        if (highlight !== index) setHighlight(index);
+                      }}
                       onClick={() => selectOption(opt)}
                     >
-                      <span>
+                      {multiple ? (
+                        <span className="ss-checkbox" aria-hidden="true">
+                          {active ? <FiCheck size={11} strokeWidth={3} /> : null}
+                        </span>
+                      ) : null}
+                      <span className="ss-option-text">
                         <strong>{opt.label}</strong>
                         {opt.meta ? <small>{opt.meta}</small> : null}
                       </span>
-                      {active ? <FiCheck size={14} /> : null}
+                      {!multiple && active ? <FiCheck size={15} className="ss-tick" aria-hidden="true" /> : null}
                     </button>
                   );
                 })}
@@ -471,6 +548,14 @@ export default function SearchableSelect({
                   </div>
                 )}
               </div>
+              {multiple && selectedValues.length > 0 ? (
+                <div className="ss-foot">
+                  <span>{selectedValues.length} selected</span>
+                  <button type="button" onClick={clearValue}>
+                    Clear
+                  </button>
+                </div>
+              ) : null}
             </motion.div>
           )}
         </AnimatePresence>,

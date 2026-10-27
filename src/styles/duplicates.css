@@ -1,0 +1,307 @@
+/* ===== Duplicates page (dp-) ===== */
+
+.dp-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: -6px;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+
+.dp-groups {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.dp-group {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.dp-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.dp-match {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.dp-match-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.dp-match strong {
+  display: block;
+  font-size: var(--fs-md);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+}
+
+.dp-match small {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+
+.dp-group-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dp-group-actions .btn.primary {
+  max-width: 320px;
+  min-width: 0;
+}
+
+.dp-merge-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dp-leads {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.dp-lead {
+  position: relative;
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
+  min-width: 0;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease, background 0.15s ease;
+}
+
+.dp-lead.dp-keep {
+  border-color: var(--brand);
+  background: var(--surface);
+  box-shadow: 0 0 0 3px var(--brand-ring);
+}
+
+.dp-lead.dp-ignored {
+  opacity: 0.6;
+}
+
+.dp-lead-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 10px;
+  border-bottom: 1px dashed var(--line);
+}
+
+.dp-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: var(--fs-sm);
+  font-weight: 550;
+  color: var(--ink-2);
+}
+
+.dp-radio input {
+  width: 16px;
+  height: 16px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  box-shadow: none;
+  accent-color: var(--brand);
+  cursor: pointer;
+}
+
+.dp-role {
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+
+.dp-role-keep {
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+
+[data-theme='dark'] .dp-role-keep {
+  color: var(--brand-dark);
+}
+
+.dp-merge-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+
+.dp-lead-head {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.dp-lead-name {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--ink);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.dp-lead-name:hover {
+  color: var(--brand);
+  text-decoration: underline;
+}
+
+.dp-lead-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.dp-hint-chip {
+  padding: 1px 7px;
+  border-radius: 6px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--surface-3);
+  border: 1px solid var(--line);
+}
+
+.dp-fields {
+  margin: 0;
+  display: grid;
+  gap: 0;
+}
+
+.dp-fields > div {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--fs-sm);
+}
+
+.dp-fields > div:last-child {
+  border-bottom: 0;
+}
+
+.dp-fields dt {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  padding-top: 1px;
+}
+
+.dp-fields dd {
+  margin: 0;
+  min-width: 0;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.dp-empty .empty-state {
+  padding: 56px 16px;
+}
+
+.dp-empty .empty-state-icon {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+/* Confirm modal */
+.dp-confirm {
+  display: grid;
+  gap: 12px;
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+
+.dp-confirm p {
+  margin: 0;
+}
+
+.dp-confirm-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.dp-confirm-list li {
+  display: grid;
+  gap: 1px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-2);
+}
+
+.dp-confirm-list li:last-child {
+  border-bottom: 0;
+}
+
+.dp-confirm-list span {
+  color: var(--ink);
+  font-weight: 550;
+}
+
+.dp-confirm-list small {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+
+.dp-confirm-points {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+}
+
+@media (max-width: 520px) {
+  .dp-group-actions {
+    width: 100%;
+  }
+
+  .dp-group-actions .btn {
+    flex: 1;
+    max-width: none;
+  }
+
+  .dp-leads {
+    grid-template-columns: 1fr;
+  }
+}

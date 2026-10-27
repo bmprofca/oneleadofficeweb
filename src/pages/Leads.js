@@ -1,12 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   FiUpload,
   FiSearch,
   FiEdit2,
-  FiTrash2,
   FiUserCheck,
   FiCalendar,
   FiBell,
@@ -23,6 +22,18 @@ import {
   FiCheck,
   FiMessageCircle,
   FiPlus,
+  FiExternalLink,
+  FiArchive,
+  FiRotateCcw,
+  FiDownload,
+  FiFilter,
+  FiTag,
+  FiShuffle,
+  FiTrendingUp,
+  FiThermometer,
+  FiClock,
+  FiChevronDown,
+  FiBox,
 } from 'react-icons/fi';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
@@ -38,6 +49,18 @@ import RefreshButton from '../components/RefreshButton';
 import { LeadsSkeleton, SkeletonTable } from '../components/Skeleton';
 import { formatDateTime, formatOptionLabel, parseAppDate } from '../utils/format';
 import { loadProductsOptions, loadUsersOptions } from '../utils/apiSelect';
+import {
+  apiError,
+  downloadBlob,
+  formatCurrency,
+  mapsLink,
+  sourceLabel,
+} from '../utils/crm';
+import useAppSettings, { useTags } from '../hooks/useAppSettings';
+import { TagList, TemperatureBadge } from '../components/crm/Badges';
+import Switch from '../components/crm/Switch';
+import ContactLinks from '../components/crm/ContactLinks';
+import '../styles/leads-upgrade.css';
 import {
   clearFieldError,
   isEmpty,
@@ -98,6 +121,95 @@ const loadAssigneeFilterOptions = async (args) => {
   return result;
 };
 
+/** Filters (besides search/product/status/assignee) mirrored in the URL. */
+const EXTRA_FILTER_KEYS = [
+  'source',
+  'tag_id',
+  'temperature',
+  'callback',
+  'created_from',
+  'created_to',
+  'archived',
+  'sort',
+];
+const URL_FILTER_KEYS = ['status', 'product_id', ...EXTRA_FILTER_KEYS];
+
+const readExtraFilters = (params) =>
+  Object.fromEntries(EXTRA_FILTER_KEYS.map((key) => [key, params.get(key) || '']));
+
+const sameFilters = (a, b) => EXTRA_FILTER_KEYS.every((key) => (a[key] || '') === (b[key] || ''));
+
+const canonicalQuery = (params) =>
+  [...params.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${k}=${v}`)
+    .join('&');
+
+const temperatureOptions = [
+  { value: 'hot', label: 'Hot' },
+  { value: 'warm', label: 'Warm' },
+  { value: 'cold', label: 'Cold' },
+];
+const callbackOptions = [
+  { value: 'overdue', label: 'Overdue' },
+  { value: 'today', label: 'Due today' },
+  { value: 'none', label: 'No follow-up' },
+];
+const sortOptions = [
+  { value: 'updated', label: 'Recently updated' },
+  { value: 'created', label: 'Newest' },
+  { value: 'oldest', label: 'Oldest' },
+  { value: 'score', label: 'Score' },
+  { value: 'deal_value', label: 'Deal value' },
+  { value: 'callback', label: 'Next callback' },
+  { value: 'name', label: 'Name' },
+];
+
+const leadPath = (id) => `/leads/${encodeURIComponent(id)}`;
+
+/** API date (YYYY-MM-DD or ISO timestamp) → YYYY-MM-DD in India time. */
+const toDateValue = (value) => {
+  if (!value) return '';
+  const raw = String(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const date = parseAppDate(raw);
+  if (!date) return '';
+  return date.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+};
+
+const toMoney = (value) => {
+  if (value === '' || value === null || value === undefined) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+};
+
+const dealValueValidator = validators.custom((value) => {
+  if (isEmpty(value)) return '';
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? '' : 'Enter a valid amount';
+});
+
+const toTagIds = (ids = []) => ids.map((id) => Number(id)).filter((id) => Number.isFinite(id));
+
+const todayStamp = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+
+const emptyCreate = {
+  name: '',
+  phone: '',
+  email: '',
+  company: '',
+  address: '',
+  website: '',
+  product_id: '',
+  assigned_to: '',
+  status: 'new',
+  source: 'manual',
+  deal_value: '',
+  expected_close_date: '',
+  tag_ids: [],
+  notes: '',
+};
+
 const emptyReminder = { title: '', description: '', remind_at: '', product_id: '' };
 const emptyAppointment = {
   title: '',
@@ -113,16 +225,37 @@ const emptyEdit = {
   name: '',
   phone: '',
   email: '',
+  company: '',
   address: '',
   website: '',
   product_id: '',
   assigned_to: '',
+  source: '',
+  deal_value: '',
+  expected_close_date: '',
+  tag_ids: [],
   notes: '',
 };
 
 export default function Leads() {
   const { hasRole } = useAuth();
-  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { settings } = useAppSettings();
+  const { tags } = useTags();
+  const [extraFilters, setExtraFilters] = useState(() => readExtraFilters(searchParams));
+  const [moreFiltersOpen, setMoreFiltersOpen] = useState(() =>
+    ['source', 'tag_id', 'temperature', 'callback', 'created_from', 'created_to', 'archived'].some(
+      (key) => searchParams.get(key)
+    )
+  );
+  const [usedSources, setUsedSources] = useState([]);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const exportRef = useRef(null);
+  const searchParamsRef = useRef(searchParams);
+  searchParamsRef.current = searchParams;
+  const productLabelRef = useRef({ id: '', label: '' });
   const [loading, setLoading] = useState(true);
   const [tableLoading, setTableLoading] = useState(false);
   const [leads, setLeads] = useState([]);
@@ -144,17 +277,13 @@ export default function Leads() {
 
   const [importOpen, setImportOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
-  const [createForm, setCreateForm] = useState({
-    name: '',
-    phone: '',
-    email: '',
-    address: '',
-    website: '',
-    product_id: '',
-    assigned_to: '',
-    status: 'new',
-    notes: '',
-  });
+  const [createForm, setCreateForm] = useState(emptyCreate);
+  const [createSaving, setCreateSaving] = useState(false);
+  const [dupMatches, setDupMatches] = useState([]);
+  const [dupConflict, setDupConflict] = useState(null);
+  const [importAutoAssign, setImportAutoAssign] = useState(false);
+  const [importSource, setImportSource] = useState('maps-import');
+  const [importTagIds, setImportTagIds] = useState([]);
   const [createProductLabel, setCreateProductLabel] = useState('');
   const [createAssigneeLabel, setCreateAssigneeLabel] = useState('');
   const [importProductIds, setImportProductIds] = useState([]);
@@ -168,7 +297,7 @@ export default function Leads() {
 
   const [manageLead, setManageLead] = useState(null);
   const [manageMode, setManageMode] = useState(null);
-  const [statusForm, setStatusForm] = useState({ status: 'new', note: '' });
+  const [statusForm, setStatusForm] = useState({ status: 'new', note: '', lost_reason: '' });
   const [editForm, setEditForm] = useState(emptyEdit);
   const [editProductLabel, setEditProductLabel] = useState('');
   const [editAssigneeLabel, setEditAssigneeLabel] = useState('');
@@ -180,6 +309,8 @@ export default function Leads() {
   const [bulkAssignTo, setBulkAssignTo] = useState('');
   const [bulkStatus, setBulkStatus] = useState('');
   const [bulkStatusNote, setBulkStatusNote] = useState('');
+  const [bulkLostReason, setBulkLostReason] = useState('');
+  const [bulkTagIds, setBulkTagIds] = useState([]);
   const [formErrors, setFormErrors] = useState({});
 
   const [confirmDelete, setConfirmDelete] = useState(null);
@@ -211,7 +342,28 @@ export default function Leads() {
     if (st) params.status = st;
     if (pr) params.product_id = pr;
     if (af) params.assigned_to = af;
+    EXTRA_FILTER_KEYS.forEach((key) => {
+      if (extraFilters[key]) params[key] = extraFilters[key];
+    });
     return params;
+  };
+
+  const viewingArchived = extraFilters.archived === 'only';
+  const activeExtraCount = ['source', 'tag_id', 'temperature', 'callback', 'created_from', 'created_to', 'archived'].filter(
+    (key) => extraFilters[key]
+  ).length;
+
+  const setExtraFilter = (key, value) => {
+    setPage(1);
+    setExtraFilters((prev) => (prev[key] === (value || '') ? prev : { ...prev, [key]: value || '' }));
+  };
+
+  const clearExtraFilters = () => {
+    setPage(1);
+    setExtraFilters((prev) => ({
+      ...Object.fromEntries(EXTRA_FILTER_KEYS.map((key) => [key, ''])),
+      sort: prev.sort,
+    }));
   };
 
   const loadStats = async (overrides = {}) => {
@@ -220,6 +372,7 @@ export default function Leads() {
       delete params.page;
       delete params.limit;
       delete params.status;
+      delete params.sort;
       const { data } = await api.get('/leads/stats', { params });
       setStats(data);
     } catch {
@@ -253,8 +406,14 @@ export default function Leads() {
     const fromStatus = searchParams.get('status') || '';
     setProductFilter(fromProduct);
     setStatusFilter(fromStatus);
+    const fromUrl = readExtraFilters(searchParams);
+    setExtraFilters((prev) => (sameFilters(prev, fromUrl) ? prev : fromUrl));
     if (!fromProduct) {
       setProductFilterLabel('');
+      return undefined;
+    }
+    if (productLabelRef.current.id === fromProduct && productLabelRef.current.label) {
+      setProductFilterLabel(productLabelRef.current.label);
       return undefined;
     }
 
@@ -273,9 +432,27 @@ export default function Leads() {
     };
   }, [searchParams]);
 
+  // Mirror filters into the query string so filtered views can be linked/bookmarked.
+  useEffect(() => {
+    const current = searchParamsRef.current;
+    const next = new URLSearchParams();
+    current.forEach((value, key) => {
+      if (!URL_FILTER_KEYS.includes(key)) next.append(key, value);
+    });
+    if (statusFilter) next.set('status', statusFilter);
+    if (productFilter) next.set('product_id', productFilter);
+    EXTRA_FILTER_KEYS.forEach((key) => {
+      if (extraFilters[key]) next.set(key, extraFilters[key]);
+    });
+    if (canonicalQuery(next) !== canonicalQuery(current)) {
+      setSearchParams(next, { replace: true });
+    }
+  }, [statusFilter, productFilter, extraFilters, setSearchParams]);
+
+  // Reload when a filter changes (loadLeads reads the latest state from this render).
   useEffect(() => {
     loadLeads({ page: 1 });
-  }, [productFilter, statusFilter, assignedFilter, limit]);
+  }, [productFilter, statusFilter, assignedFilter, extraFilters, limit]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (searchTimer.current) clearTimeout(searchTimer.current);
@@ -283,7 +460,93 @@ export default function Leads() {
       loadLeads({ page: 1, search });
     }, 350);
     return () => clearTimeout(searchTimer.current);
-  }, [search]);
+  }, [search]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    api
+      .get('/leads/sources')
+      .then(({ data }) => setUsedSources(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!exportOpen) return undefined;
+    const onDoc = (e) => {
+      if (!exportRef.current?.contains(e.target)) setExportOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [exportOpen]);
+
+  // Live duplicate check while creating a lead.
+  useEffect(() => {
+    if (!createOpen) return undefined;
+    const phoneDigits = String(createForm.phone || '').replace(/\D/g, '');
+    const email = String(createForm.email || '').trim();
+    const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+    if (phoneDigits.length < 10 && !emailOk) {
+      setDupMatches([]);
+      return undefined;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      api
+        .get('/leads/duplicates/check', {
+          params: {
+            phone: phoneDigits.length >= 10 ? createForm.phone : undefined,
+            email: emailOk ? email : undefined,
+          },
+        })
+        .then(({ data }) => {
+          if (!cancelled) setDupMatches(data?.items || []);
+        })
+        .catch(() => {
+          if (!cancelled) setDupMatches([]);
+        });
+    }, 450);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [createOpen, createForm.phone, createForm.email]);
+
+  // One lead per mobile number per product: a same-number, same-product match blocks creation.
+  const sameProductDup = useMemo(() => {
+    const pool = dupConflict || dupMatches;
+    return (
+      pool.find(
+        (d) =>
+          d.blocking ||
+          (Number(d.phone_match) === 1 &&
+            createForm.product_id &&
+            String(d.product_id) === String(createForm.product_id))
+      ) || null
+    );
+  }, [dupConflict, dupMatches, createForm.product_id]);
+
+  const sourceOptions = useMemo(() => {
+    const names = [...(settings.lead_sources || [])];
+    usedSources.forEach((row) => {
+      if (row?.name && !names.includes(row.name)) names.push(row.name);
+    });
+    return names.map((name) => ({ value: name, label: sourceLabel(name) }));
+  }, [settings.lead_sources, usedSources]);
+
+  const tagOptions = useMemo(
+    () => tags.map((t) => ({ value: String(t.id), label: t.name })),
+    [tags]
+  );
+
+  const lostReasonOptions = useMemo(
+    () => (settings.lost_reasons || []).map((r) => ({ value: r, label: r })),
+    [settings.lost_reasons]
+  );
+
+  const tagLabels = (ids = []) =>
+    ids.map((id) => ({
+      value: String(id),
+      label: tags.find((t) => String(t.id) === String(id))?.name || String(id),
+    }));
 
   const toggleOne = (id) => {
     setSelected((prev) =>
@@ -319,15 +582,29 @@ export default function Leads() {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('product_ids', JSON.stringify(importProductIds));
+      if (hasRole('admin')) {
+        formData.append('auto_assign', importAutoAssign ? 'true' : 'false');
+      }
+      if (importSource) formData.append('source', importSource);
+      if (importTagIds.length) {
+        formData.append('tag_ids', JSON.stringify(toTagIds(importTagIds)));
+      }
       const { data } = await api.post('/leads/import', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
-      toast.success(
-        `Imported ${data.imported} · Duplicates ignored ${data.duplicates} · Skipped ${data.skipped}`
-      );
+      const parts = [
+        `Imported ${data.imported ?? 0}`,
+        `Duplicates ignored ${data.duplicates ?? 0}`,
+      ];
+      if (data.phone_duplicates) parts.push(`Same number + product skipped ${data.phone_duplicates}`);
+      parts.push(`Skipped ${data.skipped ?? 0}`);
+      if (data.auto_assigned) parts.push(`Auto-assigned ${data.auto_assigned}`);
+      if (data.links_backfilled) parts.push(`Google links added to ${data.links_backfilled} existing`);
+      toast.success(parts.join(' · '), { duration: 6000 });
       setFile(null);
       setImportProductIds([]);
       setImportProductLabels([]);
+      setImportTagIds([]);
       setFormErrors({});
       setImportOpen(false);
       loadLeads({ page: 1 });
@@ -342,16 +619,23 @@ export default function Leads() {
     setManageLead(lead);
     setManageMode(mode);
     setFormErrors({});
-    if (mode === 'status') setStatusForm({ status: lead.status || 'new', note: '' });
+    if (mode === 'status') {
+      setStatusForm({ status: lead.status || 'new', note: '', lost_reason: lead.lost_reason || '' });
+    }
     if (mode === 'edit') {
       setEditForm({
         name: lead.name || '',
         phone: lead.phone || '',
         email: lead.email || '',
+        company: lead.company || '',
         address: lead.address || '',
         website: lead.website || '',
         product_id: lead.product_id != null ? String(lead.product_id) : '',
         assigned_to: lead.assigned_to != null ? String(lead.assigned_to) : '',
+        source: lead.source || '',
+        deal_value: lead.deal_value != null ? String(lead.deal_value) : '',
+        expected_close_date: toDateValue(lead.expected_close_date),
+        tag_ids: (lead.tags || []).map((t) => String(t.id)),
         notes: lead.notes || '',
       });
       setEditProductLabel(lead.product_name || '');
@@ -418,6 +702,11 @@ export default function Leads() {
           validators.required('Status is required'),
           validators.oneOf(statuses, 'Select a valid status'),
         ],
+        lost_reason: [
+          validators.custom((value, values) =>
+            values.status === 'lost' && isEmpty(value) ? 'Select why this lead was lost' : ''
+          ),
+        ],
       },
       statusForm
     );
@@ -428,6 +717,7 @@ export default function Leads() {
       await api.put(`/leads/${manageLead.id}`, {
         status: statusForm.status,
         status_note: statusForm.note || null,
+        ...(statusForm.status === 'lost' ? { lost_reason: statusForm.lost_reason } : {}),
       });
       toast.success('Status updated');
       await loadManageHistory(manageLead, 'status');
@@ -470,6 +760,7 @@ export default function Leads() {
             return digits.length >= 7 ? '' : 'Enter a valid phone number';
           }),
         ],
+        deal_value: [dealValueValidator],
       },
       editForm
     );
@@ -480,7 +771,10 @@ export default function Leads() {
       await api.put(`/leads/${manageLead.id}`, {
         ...editForm,
         assigned_to: hasRole('admin') ? editForm.assigned_to || null : undefined,
-        product_id: editForm.product_id || null,
+        source: editForm.source || undefined,
+        deal_value: toMoney(editForm.deal_value),
+        expected_close_date: editForm.expected_close_date || null,
+        tag_ids: toTagIds(editForm.tag_ids),
       });
       toast.success('Lead details updated');
       closeManage();
@@ -494,7 +788,6 @@ export default function Leads() {
     e.preventDefault();
     const result = validateForm(
       {
-        product_id: [validators.required('Please select a product')],
         remind_at: [
           validators.required('Callback date and time is required'),
           validators.datetime('Select a valid date and time'),
@@ -587,11 +880,11 @@ export default function Leads() {
     try {
       if (confirmDelete.type === 'lead') {
         await api.delete(`/leads/${confirmDelete.id}`);
-        toast.success('Lead deleted');
+        toast.success('Lead archived — restore it from Archived');
       } else if (confirmDelete.type === 'bulk') {
         const { data } = await api.post('/leads/bulk', {
           ids: confirmDelete.ids,
-          action: 'delete',
+          action: 'archive',
         });
         toast.success(data.message || 'Bulk action completed');
         setSelected([]);
@@ -600,9 +893,141 @@ export default function Leads() {
       setConfirmDelete(null);
       loadLeads();
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Delete failed');
+      toast.error(err.response?.data?.message || 'Archive failed');
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const restoreLead = async (lead) => {
+    try {
+      await api.post(`/leads/${lead.id}/restore`);
+      toast.success(`"${lead.name}" restored`);
+      loadLeads();
+    } catch (err) {
+      toast.error(apiError(err, 'Restore failed'));
+    }
+  };
+
+  const exportLeads = async (format) => {
+    setExportOpen(false);
+    setExporting(true);
+    try {
+      const params = { ...buildParams(), format };
+      delete params.page;
+      delete params.limit;
+      const { data } = await api.get('/leads/export', { params, responseType: 'blob' });
+      downloadBlob(data, `leads-${todayStamp()}.${format === 'csv' ? 'csv' : 'xlsx'}`);
+      toast.success('Export ready');
+    } catch (err) {
+      let message = 'Export failed';
+      const blob = err?.response?.data;
+      if (blob instanceof Blob) {
+        try {
+          message = JSON.parse(await blob.text())?.message || message;
+        } catch {
+          /* not JSON */
+        }
+      } else {
+        message = apiError(err, message);
+      }
+      toast.error(message);
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const resetCreate = () => {
+    setCreateForm(emptyCreate);
+    setCreateProductLabel('');
+    setCreateAssigneeLabel('');
+    setDupMatches([]);
+    setDupConflict(null);
+    setFormErrors({});
+  };
+
+  const closeCreate = () => {
+    setCreateOpen(false);
+    setDupConflict(null);
+    setFormErrors({});
+  };
+
+  const submitCreate = async (force = false) => {
+    const result = validateForm(
+      {
+        name: [
+          validators.required('Name is required'),
+          validators.minLength(2, 'Name must be at least 2 characters'),
+        ],
+        product_id: [validators.required('Please select a product')],
+        email: [validators.email('Enter a valid email address')],
+        phone: [
+          validators.custom((value) => {
+            if (!value) return '';
+            const digits = String(value).replace(/\D/g, '');
+            return digits.length >= 7 ? '' : 'Enter a valid phone number';
+          }),
+        ],
+        status: [
+          validators.required('Status is required'),
+          validators.oneOf(statuses, 'Select a valid status'),
+        ],
+        deal_value: [dealValueValidator],
+      },
+      createForm
+    );
+    setFormErrors(result.errors);
+    if (!result.valid) return;
+
+    setCreateSaving(true);
+    try {
+      const { data } = await api.post('/leads', {
+        ...createForm,
+        product_id: createForm.product_id,
+        assigned_to: hasRole('admin') ? createForm.assigned_to || null : undefined,
+        source: createForm.source || 'manual',
+        deal_value: toMoney(createForm.deal_value),
+        expected_close_date: createForm.expected_close_date || null,
+        tag_ids: toTagIds(createForm.tag_ids),
+        ...(force ? { force: true } : {}),
+      });
+      const newId = data?.id;
+      toast.success(
+        (t) => (
+          <span className="lu-toast">
+            Lead created
+            {newId ? (
+              <button
+                type="button"
+                className="btn small"
+                onClick={() => {
+                  toast.dismiss(t.id);
+                  navigate(leadPath(newId));
+                }}
+              >
+                Open
+              </button>
+            ) : null}
+          </span>
+        ),
+        { duration: 6000 }
+      );
+      setCreateOpen(false);
+      setDupConflict(null);
+      loadLeads({ page: 1 });
+    } catch (err) {
+      const body = err.response?.data;
+      if (err.response?.status === 409 && body?.code === 'DUPLICATE_PHONE_PRODUCT') {
+        setDupConflict([{ ...body.existing, blocking: true }]);
+        toast.error(body.message || 'This mobile number already has a lead for this product');
+      } else if (err.response?.status === 409 && body?.code === 'DUPLICATE_LEAD') {
+        setDupConflict(body.duplicates || []);
+        toast.error(body.message || 'A lead with this phone or email already exists');
+      } else {
+        toast.error(apiError(err, 'Failed to create lead'));
+      }
+    } finally {
+      setCreateSaving(false);
     }
   };
 
@@ -621,6 +1046,8 @@ export default function Leads() {
       setBulkAssignTo('');
       setBulkStatus('');
       setBulkStatusNote('');
+      setBulkLostReason('');
+      setBulkTagIds([]);
       loadLeads();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Bulk action failed');
@@ -633,8 +1060,37 @@ export default function Leads() {
     { label: 'In progress', value: stats?.in_progress_count || 0, icon: FiActivity, tone: 'amber' },
     { label: 'Won', value: stats?.won_count || 0, icon: FiAward, tone: 'emerald' },
     { label: 'Lost', value: stats?.lost_count || 0, icon: FiAlertCircle, tone: 'rose' },
-    { label: 'Unassigned', value: stats?.unassigned_count || 0, icon: FiUserCheck, tone: 'cyan' },
+    {
+      label: 'Hot leads',
+      value: stats?.hot_count || 0,
+      icon: FiThermometer,
+      tone: 'rose',
+      active: extraFilters.temperature === 'hot',
+      onClick: () => setExtraFilter('temperature', extraFilters.temperature === 'hot' ? '' : 'hot'),
+      title: 'Show hot leads',
+    },
+    {
+      label: 'Pipeline value',
+      value: formatCurrency(stats?.open_value || 0, { compact: true }),
+      icon: FiTrendingUp,
+      tone: 'blue',
+      title: 'Total deal value of open leads',
+    },
+    {
+      label: 'Overdue follow-ups',
+      value: stats?.overdue_callbacks || 0,
+      icon: FiClock,
+      tone: Number(stats?.overdue_callbacks) > 0 ? 'rose' : 'cyan',
+      active: extraFilters.callback === 'overdue',
+      onClick: () => setExtraFilter('callback', extraFilters.callback === 'overdue' ? '' : 'overdue'),
+      title: 'Show leads with overdue callbacks',
+    },
+    ...(hasRole('admin')
+      ? [{ label: 'Unassigned', value: stats?.unassigned_count || 0, icon: FiUserCheck, tone: 'cyan' }]
+      : []),
   ];
+
+  const tableCols = hasRole('admin') ? 9 : 8;
 
   if (loading && leads.length === 0) return <LeadsSkeleton />;
 
@@ -656,24 +1112,36 @@ export default function Leads() {
               }
             }}
           />
+          <div className="lu-export" ref={exportRef}>
+            <button
+              type="button"
+              className="btn"
+              disabled={exporting}
+              aria-haspopup="menu"
+              aria-expanded={exportOpen}
+              onClick={() => setExportOpen((v) => !v)}
+            >
+              <FiDownload size={15} />
+              {exporting ? 'Exporting…' : 'Export'}
+              <FiChevronDown size={14} />
+            </button>
+            {exportOpen && (
+              <div className="lu-export-menu" role="menu">
+                <button type="button" role="menuitem" onClick={() => exportLeads('xlsx')}>
+                  Excel (.xlsx)
+                </button>
+                <button type="button" role="menuitem" onClick={() => exportLeads('csv')}>
+                  CSV (.csv)
+                </button>
+                <small>Uses the current filters and sort</small>
+              </div>
+            )}
+          </div>
           <button
             type="button"
             className="btn"
             onClick={() => {
-              setCreateForm({
-                name: '',
-                phone: '',
-                email: '',
-                address: '',
-                website: '',
-                product_id: '',
-                assigned_to: '',
-                status: 'new',
-                notes: '',
-              });
-              setCreateProductLabel('');
-              setCreateAssigneeLabel('');
-              setFormErrors({});
+              resetCreate();
               setCreateOpen(true);
             }}
           >
@@ -690,11 +1158,11 @@ export default function Leads() {
         </div>
       </header>
 
-      <section className="stat-grid stat-grid-compact">
+      <section className={`stat-grid stat-grid-compact lu-stat-grid ${statCards.length > 8 ? 'lu-stat-grid-9' : ''}`}>
         {statCards.map((card) => {
           const Icon = card.icon;
-          return (
-            <article key={card.label} className={`stat-card stat-card-sm stat-tone-${card.tone}`}>
+          const body = (
+            <>
               <span className="stat-icon">
                 <Icon size={13} />
               </span>
@@ -702,6 +1170,26 @@ export default function Leads() {
                 <span>{card.label}</span>
                 <strong>{card.value}</strong>
               </div>
+            </>
+          );
+          return card.onClick ? (
+            <button
+              key={card.label}
+              type="button"
+              title={card.title}
+              aria-pressed={!!card.active}
+              onClick={card.onClick}
+              className={`stat-card stat-card-sm stat-tone-${card.tone} lu-stat-btn ${card.active ? 'is-active' : ''}`}
+            >
+              {body}
+            </button>
+          ) : (
+            <article
+              key={card.label}
+              title={card.title}
+              className={`stat-card stat-card-sm stat-tone-${card.tone}`}
+            >
+              {body}
             </article>
           );
         })}
@@ -709,9 +1197,30 @@ export default function Leads() {
 
       <section className="panel leads-panel">
         <div className="leads-toolbar">
-          <div className="leads-toolbar-title">
-            <h2>All leads</h2>
+          <div className="leads-toolbar-title lu-toolbar-title">
+            <h2>{viewingArchived ? 'Archived leads' : 'All leads'}</h2>
             <span className="count-chip">{total} total</span>
+            <div className="lu-toolbar-tools">
+              <label className="lu-sort">
+                <span>Sort</span>
+                <SearchableSelect
+                  value={extraFilters.sort || 'updated'}
+                  options={sortOptions}
+                  clearable={false}
+                  onChange={(val) => setExtraFilter('sort', val && val !== 'updated' ? val : '')}
+                />
+              </label>
+              <button
+                type="button"
+                className={`btn small lu-more-btn ${moreFiltersOpen ? 'active' : ''}`}
+                aria-expanded={moreFiltersOpen}
+                onClick={() => setMoreFiltersOpen((v) => !v)}
+              >
+                <FiFilter size={13} />
+                More filters
+                {activeExtraCount > 0 ? <span className="lu-filter-count">{activeExtraCount}</span> : null}
+              </button>
+            </div>
           </div>
 
           <div className={`filter-bar ${hasRole('admin') ? 'filter-bar-4' : 'filter-bar-3'}`}>
@@ -731,6 +1240,7 @@ export default function Leads() {
               loadOptions={loadProductsOptions}
               onChange={(val, opt) => {
                 setPage(1);
+                productLabelRef.current = { id: String(val || ''), label: opt?.label || '' };
                 setProductFilter(val);
                 setProductFilterLabel(opt?.label || '');
               }}
@@ -760,6 +1270,72 @@ export default function Leads() {
               />
             )}
           </div>
+
+          {moreFiltersOpen && (
+            <div className="lu-more-filters">
+              <SearchableSelect
+                value={extraFilters.source}
+                placeholder="Any source"
+                clearable
+                options={sourceOptions}
+                onChange={(val) => setExtraFilter('source', val)}
+              />
+              <SearchableSelect
+                value={extraFilters.tag_id}
+                placeholder="Any tag"
+                clearable
+                options={tagOptions}
+                onChange={(val) => setExtraFilter('tag_id', val)}
+              />
+              <SearchableSelect
+                value={extraFilters.temperature}
+                placeholder="Any temperature"
+                clearable
+                options={temperatureOptions}
+                onChange={(val) => setExtraFilter('temperature', val)}
+              />
+              <SearchableSelect
+                value={extraFilters.callback}
+                placeholder="Any callback"
+                clearable
+                options={callbackOptions}
+                onChange={(val) => setExtraFilter('callback', val)}
+              />
+              <DateTimePicker
+                mode="date"
+                value={extraFilters.created_from}
+                placeholder="Created from"
+                onChange={(val) => setExtraFilter('created_from', val)}
+              />
+              <DateTimePicker
+                mode="date"
+                value={extraFilters.created_to}
+                placeholder="Created to"
+                onChange={(val) => setExtraFilter('created_to', val)}
+              />
+              <div className="lu-more-filters-end">
+                {hasRole('admin') && (
+                  <Switch
+                    checked={viewingArchived}
+                    onChange={(on) => setExtraFilter('archived', on ? 'only' : '')}
+                    label="Archived"
+                  />
+                )}
+                {activeExtraCount > 0 && (
+                  <button type="button" className="btn small ghost" onClick={clearExtraFilters}>
+                    <FiX size={13} />
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+          {viewingArchived && (
+            <p className="lu-archived-note">
+              <FiArchive size={13} />
+              Showing archived leads. Select leads and use Restore to bring them back.
+            </p>
+          )}
         </div>
 
         <div className="table-wrap">
@@ -790,8 +1366,12 @@ export default function Leads() {
             <tbody>
               {leads.length === 0 && (
                 <tr>
-                  <td colSpan={hasRole('admin') ? 9 : 8}>
-                    No leads found. Import an Excel or CSV file to begin.
+                  <td colSpan={tableCols}>
+                    {viewingArchived
+                      ? 'No archived leads match these filters.'
+                      : activeExtraCount > 0 || search || statusFilter || productFilter || assignedFilter
+                        ? 'No leads match these filters.'
+                        : 'No leads found. Import an Excel or CSV file to begin.'}
                   </td>
                 </tr>
               )}
@@ -800,7 +1380,9 @@ export default function Leads() {
                 return (
                 <tr
                   key={lead.id}
-                  className={selected.includes(lead.id) ? 'row-selected' : ''}
+                  className={`${selected.includes(lead.id) ? 'row-selected' : ''} ${
+                    lead.archived_at ? 'lu-row-archived' : ''
+                  }`.trim()}
                 >
                   <td className="check-col">
                     <Checkbox
@@ -810,17 +1392,44 @@ export default function Leads() {
                     />
                   </td>
                   <td className="col-name">
-                    <strong>{lead.name}</strong>
+                    <strong>
+                      <Link
+                        to={leadPath(lead.id)}
+                        className="lu-lead-link"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {lead.name}
+                      </Link>
+                    </strong>
+                    {lead.tags?.length ? (
+                      <div className="lu-row-tags">
+                        <TagList tags={lead.tags} max={2} />
+                      </div>
+                    ) : null}
                     {lead.address ? (
                       <div>
                         <small>{lead.address}</small>
                       </div>
                     ) : null}
                   </td>
-                  <td className="col-product">{lead.product_name || '—'}</td>
+                  <td className="col-product">
+                    <div className="lu-ellipsis">{lead.product_name || '—'}</div>
+                    {lead.deal_value != null && lead.deal_value !== '' ? (
+                      <small className="lu-deal" title={formatCurrency(lead.deal_value)}>
+                        {formatCurrency(lead.deal_value, { compact: true })}
+                      </small>
+                    ) : null}
+                  </td>
                   <td className="col-contact">
                     <div>{lead.phone || '—'}</div>
                     {lead.email ? <small>{lead.email}</small> : null}
+                    <ContactLinks
+                      className="lu-contact-links"
+                      phone={lead.phone}
+                      name={lead.name}
+                      map={mapsLink(lead)}
+                      whatsapp={false}
+                    />
                   </td>
                   <td className="col-status">
                     <button
@@ -833,6 +1442,16 @@ export default function Leads() {
                     >
                       {formatOptionLabel(lead.status)}
                     </button>
+                    {lead.temperature ? (
+                      <div className="lu-temp">
+                        <TemperatureBadge temperature={lead.temperature} score={lead.score} />
+                      </div>
+                    ) : null}
+                    {lead.archived_at ? (
+                      <div className="lu-temp">
+                        <span className="tag-chip tone-slate">Archived</span>
+                      </div>
+                    ) : null}
                   </td>
                   <td className="col-whatsapp">
                     <button
@@ -906,6 +1525,11 @@ export default function Leads() {
                     <ActionMenu
                       items={[
                         {
+                          label: 'Open details',
+                          icon: <FiExternalLink size={14} />,
+                          onClick: () => navigate(leadPath(lead.id)),
+                        },
+                        {
                           label: 'View details',
                           icon: <FiEye size={14} />,
                           onClick: () => openManage(lead, 'view'),
@@ -932,12 +1556,18 @@ export default function Leads() {
                         },
                         ...(hasRole('admin')
                           ? [
-                              {
-                                label: 'Delete',
-                                icon: <FiTrash2 size={14} />,
-                                danger: true,
-                                onClick: () => handleDelete(lead.id, lead.name),
-                              },
+                              lead.archived_at
+                                ? {
+                                    label: 'Restore',
+                                    icon: <FiRotateCcw size={14} />,
+                                    onClick: () => restoreLead(lead),
+                                  }
+                                : {
+                                    label: 'Archive',
+                                    icon: <FiArchive size={14} />,
+                                    danger: true,
+                                    onClick: () => handleDelete(lead.id, lead.name),
+                                  },
                             ]
                           : []),
                       ]}
@@ -983,9 +1613,19 @@ export default function Leads() {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 8 }}
                 >
+                  {hasRole('admin') && viewingArchived && (
+                    <button type="button" onClick={() => runBulk('restore')}>
+                      <FiRotateCcw size={14} /> Restore
+                    </button>
+                  )}
                   {hasRole('admin') && (
                     <button type="button" onClick={() => setBulkModal('assign')}>
                       <FiUserCheck size={14} /> Assign
+                    </button>
+                  )}
+                  {hasRole('admin') && (
+                    <button type="button" onClick={() => runBulk('auto_assign')}>
+                      <FiShuffle size={14} /> Auto-assign (round-robin)
                     </button>
                   )}
                   <button type="button" onClick={() => setBulkModal('status')}>
@@ -1003,7 +1643,27 @@ export default function Leads() {
                   >
                     <FiMessageCircle size={14} /> WhatsApp Inactive
                   </button>
-                  {hasRole('admin') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBulkTagIds([]);
+                      setFormErrors({});
+                      setBulkModal('tag_add');
+                    }}
+                  >
+                    <FiTag size={14} /> Add tags
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBulkTagIds([]);
+                      setFormErrors({});
+                      setBulkModal('tag_remove');
+                    }}
+                  >
+                    <FiTag size={14} /> Remove tags
+                  </button>
+                  {hasRole('admin') && !viewingArchived && (
                     <button
                       type="button"
                       className="danger"
@@ -1015,7 +1675,7 @@ export default function Leads() {
                         })
                       }
                     >
-                      <FiTrash2 size={14} /> Delete
+                      <FiArchive size={14} /> Archive
                     </button>
                   )}
                   <button type="button" onClick={() => setSelected([])}>
@@ -1040,72 +1700,44 @@ export default function Leads() {
         open={createOpen}
         title="Add lead"
         size="lg"
-        onClose={() => {
-          setCreateOpen(false);
-          setFormErrors({});
-        }}
+        onClose={closeCreate}
         footer={
           <>
-            <button
-              type="button"
-              className="btn"
-              onClick={() => {
-                setCreateOpen(false);
-                setFormErrors({});
-              }}
-            >
+            <button type="button" className="btn" onClick={closeCreate}>
               Cancel
             </button>
-            <button type="submit" form="create-lead-form" className="btn primary">
-              Create lead
-            </button>
+            {sameProductDup ? (
+              <button type="button" className="btn primary" disabled title="This number already has a lead for this product">
+                Can’t create: duplicate
+              </button>
+            ) : dupConflict ? (
+              <button
+                type="button"
+                className="btn primary"
+                disabled={createSaving}
+                onClick={() => submitCreate(true)}
+              >
+                {createSaving ? 'Creating…' : 'Create anyway'}
+              </button>
+            ) : (
+              <button
+                type="submit"
+                form="create-lead-form"
+                className="btn primary"
+                disabled={createSaving}
+              >
+                {createSaving ? 'Creating…' : 'Create lead'}
+              </button>
+            )}
           </>
         }
       >
         <form
           id="create-lead-form"
           className="form-grid"
-          onSubmit={async (e) => {
+          onSubmit={(e) => {
             e.preventDefault();
-            const result = validateForm(
-              {
-                name: [
-                  validators.required('Name is required'),
-                  validators.minLength(2, 'Name must be at least 2 characters'),
-                ],
-                product_id: [validators.required('Please select a product')],
-                email: [validators.email('Enter a valid email address')],
-                phone: [
-                  validators.custom((value) => {
-                    if (!value) return '';
-                    const digits = String(value).replace(/\D/g, '');
-                    return digits.length >= 7 ? '' : 'Enter a valid phone number';
-                  }),
-                ],
-                status: [
-                  validators.required('Status is required'),
-                  validators.oneOf(statuses, 'Select a valid status'),
-                ],
-              },
-              createForm
-            );
-            setFormErrors(result.errors);
-            if (!result.valid) return;
-
-            try {
-              await api.post('/leads', {
-                ...createForm,
-                product_id: createForm.product_id,
-                assigned_to: hasRole('admin')
-                  ? createForm.assigned_to || null
-                  : undefined,
-              });
-              toast.success('Lead created');
-              setCreateOpen(false);
-              loadLeads({ page: 1 });
-            } catch (err) {
-              toast.error(err.response?.data?.message || 'Failed to create lead');
-            }
+            submitCreate(false);
           }}
           noValidate
         >
@@ -1125,6 +1757,7 @@ export default function Leads() {
               value={createForm.phone}
               onChange={(e) => {
                 setCreateForm((p) => ({ ...p, phone: e.target.value }));
+                setDupConflict(null);
                 setFormErrors((prev) => clearFieldError(prev, 'phone'));
               }}
               placeholder="Mobile number"
@@ -1136,12 +1769,67 @@ export default function Leads() {
               value={createForm.email}
               onChange={(e) => {
                 setCreateForm((p) => ({ ...p, email: e.target.value }));
+                setDupConflict(null);
                 setFormErrors((prev) => clearFieldError(prev, 'email'));
               }}
               placeholder="Email"
               className={formErrors.email ? 'invalid' : ''}
             />
           </FormField>
+          <FormField label="Company">
+            <input
+              value={createForm.company}
+              onChange={(e) => setCreateForm((p) => ({ ...p, company: e.target.value }))}
+              placeholder="Company / business name"
+            />
+          </FormField>
+          {(dupConflict || dupMatches).length > 0 && (
+            <div className={`lu-dup full ${dupConflict || sameProductDup ? 'is-blocking' : ''}`} role="alert">
+              <div className="lu-dup-head">
+                <FiAlertCircle size={15} />
+                <strong>
+                  {sameProductDup
+                    ? `This mobile number already has a lead for ${sameProductDup.product_name || 'this product'}`
+                    : dupConflict
+                      ? 'A lead with this phone or email already exists'
+                      : `Possible duplicate${(dupMatches.length > 1) ? 's' : ''} found`}
+                </strong>
+              </div>
+              <ul>
+                {(dupConflict || dupMatches).map((d, i) => (
+                  <li key={d.id || `${d.name}-${i}`}>
+                    {d.id && !d.restricted ? (
+                      <Link to={leadPath(d.id)} target="_blank" rel="noreferrer">
+                        {d.name}
+                      </Link>
+                    ) : (
+                      <span>{d.name}</span>
+                    )}
+                    <small>
+                      {[
+                        d.status ? formatOptionLabel(d.status) : null,
+                        d.product_name,
+                        d.phone,
+                        d.email,
+                        d.assigned_name
+                          ? `assigned to ${d.assigned_name}`
+                          : d.restricted
+                            ? null
+                            : 'unassigned',
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </small>
+                  </li>
+                ))}
+              </ul>
+              {sameProductDup ? (
+                <p>One mobile number can have only one lead per product. Open the existing lead instead, or choose a different product.</p>
+              ) : dupConflict ? (
+                <p>Use “Create anyway” to add it as a separate lead.</p>
+              ) : null}
+            </div>
+          )}
           <FormField label="Product *" error={formErrors.product_id}>
             <SearchableSelect
               value={createForm.product_id}
@@ -1152,6 +1840,7 @@ export default function Leads() {
               onChange={(val, opt) => {
                 setCreateForm((p) => ({ ...p, product_id: val }));
                 setCreateProductLabel(opt?.label || '');
+                setDupConflict(null);
                 setFormErrors((prev) => clearFieldError(prev, 'product_id'));
               }}
             />
@@ -1166,6 +1855,46 @@ export default function Leads() {
                 setCreateForm((p) => ({ ...p, status: val || 'new' }));
                 setFormErrors((prev) => clearFieldError(prev, 'status'));
               }}
+            />
+          </FormField>
+          <FormField label="Source">
+            <SearchableSelect
+              value={createForm.source}
+              options={sourceOptions}
+              clearable={false}
+              onChange={(val) => setCreateForm((p) => ({ ...p, source: val || 'manual' }))}
+            />
+          </FormField>
+          <FormField label="Deal value (₹)" error={formErrors.deal_value}>
+            <input
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="any"
+              value={createForm.deal_value}
+              onChange={(e) => {
+                setCreateForm((p) => ({ ...p, deal_value: e.target.value }));
+                setFormErrors((prev) => clearFieldError(prev, 'deal_value'));
+              }}
+              placeholder="Optional"
+              className={formErrors.deal_value ? 'invalid' : ''}
+            />
+          </FormField>
+          <FormField label="Expected close date">
+            <DateTimePicker
+              mode="date"
+              value={createForm.expected_close_date}
+              onChange={(val) => setCreateForm((p) => ({ ...p, expected_close_date: val || '' }))}
+            />
+          </FormField>
+          <FormField label="Tags">
+            <SearchableSelect
+              multiple
+              value={createForm.tag_ids}
+              valueLabels={tagLabels(createForm.tag_ids)}
+              placeholder={tagOptions.length ? 'Select tags' : 'No tags yet'}
+              options={tagOptions}
+              onChange={(vals) => setCreateForm((p) => ({ ...p, tag_ids: vals || [] }))}
             />
           </FormField>
           {hasRole('admin') && (
@@ -1294,8 +2023,36 @@ export default function Leads() {
               </span>
             </label>
           </FormField>
+          <FormField label="Source">
+            <SearchableSelect
+              value={importSource}
+              options={sourceOptions}
+              clearable={false}
+              onChange={(val) => setImportSource(val || 'maps-import')}
+            />
+          </FormField>
+          <FormField label="Tags">
+            <SearchableSelect
+              multiple
+              value={importTagIds}
+              valueLabels={tagLabels(importTagIds)}
+              placeholder={tagOptions.length ? 'Tag imported leads' : 'No tags yet'}
+              options={tagOptions}
+              onChange={(vals) => setImportTagIds(vals || [])}
+            />
+          </FormField>
+          <div className="full lu-import-switches">
+            {hasRole('admin') && (
+              <Switch
+                checked={importAutoAssign}
+                onChange={setImportAutoAssign}
+                label="Auto-assign imported leads (round-robin)"
+              />
+            )}
+          </div>
           <p className="hint full">
-            Selecting multiple products imports the same sheet for each product.
+            Selecting multiple products imports the same sheet for each product. A mobile number that
+            already has a lead for a product is always skipped for that product.
           </p>
         </form>
       </Modal>
@@ -1307,6 +2064,12 @@ export default function Leads() {
         onClose={closeManage}
         footer={
           <>
+            {manageLead ? (
+              <Link className="btn" to={leadPath(manageLead.id)}>
+                <FiExternalLink size={14} />
+                Open full page
+              </Link>
+            ) : null}
             <button
               type="button"
               className="btn primary"
@@ -1334,9 +2097,35 @@ export default function Leads() {
               ['Phone', manageLead.phone || '—'],
               ['Email', manageLead.email || '—'],
               ['Website', manageLead.website || '—'],
+              [
+                'Google Business Profile',
+                /^https?:\/\//i.test(manageLead.business_profile_url || '') ? (
+                  <a href={manageLead.business_profile_url} target="_blank" rel="noopener noreferrer">
+                    Open in Google Maps
+                  </a>
+                ) : (
+                  '—'
+                ),
+              ],
               ['Category', manageLead.category || '—'],
               ['Address', manageLead.address || '—'],
-              ['Source', manageLead.source || '—'],
+              ['Source', sourceLabel(manageLead.source)],
+              ['Company', manageLead.company || '—'],
+              [
+                'Deal value',
+                manageLead.deal_value != null ? formatCurrency(manageLead.deal_value) : '—',
+              ],
+              [
+                'Expected close',
+                manageLead.expected_close_date
+                  ? formatDateTime(toDateValue(manageLead.expected_close_date), {
+                      day: 'numeric',
+                      month: 'short',
+                      year: 'numeric',
+                    })
+                  : '—',
+              ],
+              ['Lead score', manageLead.score != null ? `${manageLead.score}/100` : '—'],
               ['Open hours', manageLead.open_hours || '—'],
               ['Rating', manageLead.rating || '—'],
               ['Notes', manageLead.notes || '—'],
@@ -1347,6 +2136,14 @@ export default function Leads() {
                 <strong>{value}</strong>
               </div>
             ))}
+            {manageLead.tags?.length ? (
+              <div className="detail-item">
+                <span>Tags</span>
+                <strong>
+                  <TagList tags={manageLead.tags} max={6} />
+                </strong>
+              </div>
+            ) : null}
           </div>
         )}
       </Modal>
@@ -1379,6 +2176,20 @@ export default function Leads() {
               }}
             />
           </FormField>
+          {statusForm.status === 'lost' && (
+            <FormField label="Lost reason *" className="full" error={formErrors.lost_reason}>
+              <SearchableSelect
+                value={statusForm.lost_reason}
+                placeholder="Why was this lead lost?"
+                options={lostReasonOptions}
+                invalid={Boolean(formErrors.lost_reason)}
+                onChange={(val) => {
+                  setStatusForm((prev) => ({ ...prev, lost_reason: val || '' }));
+                  setFormErrors((prev) => clearFieldError(prev, 'lost_reason'));
+                }}
+              />
+            </FormField>
+          )}
           <FormField label="Note (optional)" className="full">
             <textarea
               rows="3"
@@ -1446,19 +2257,12 @@ export default function Leads() {
               className={formErrors.name ? 'invalid' : ''}
             />
           </FormField>
-          <FormField label="Product" error={formErrors.product_id}>
-            <SearchableSelect
-              value={editForm.product_id}
-              valueLabel={editProductLabel}
-              placeholder="Select Product"
-              loadOptions={loadProductsOptions}
-              invalid={Boolean(formErrors.product_id)}
-              onChange={(val, opt) => {
-                setEditForm((p) => ({ ...p, product_id: val }));
-                setEditProductLabel(opt?.label || '');
-                setFormErrors((prev) => clearFieldError(prev, 'product_id'));
-              }}
-            />
+          <FormField label="Product">
+            <div className="field-readonly" title="A lead's product can't be changed after it is created">
+              <FiBox size={14} aria-hidden="true" />
+              {editProductLabel || manageLead?.product_name || '—'}
+              <small>Locked</small>
+            </div>
           </FormField>
           <FormField label="Phone" error={formErrors.phone}>
             <input
@@ -1491,6 +2295,58 @@ export default function Leads() {
               }}
               placeholder="Website URL"
               className={formErrors.website ? 'invalid' : ''}
+            />
+          </FormField>
+          <FormField label="Company">
+            <input
+              value={editForm.company}
+              onChange={(e) => setEditForm((p) => ({ ...p, company: e.target.value }))}
+              placeholder="Company / business name"
+            />
+          </FormField>
+          <FormField label="Source">
+            <SearchableSelect
+              value={editForm.source}
+              placeholder="Select source"
+              options={
+                editForm.source && !sourceOptions.some((o) => o.value === editForm.source)
+                  ? [...sourceOptions, { value: editForm.source, label: sourceLabel(editForm.source) }]
+                  : sourceOptions
+              }
+              clearable={false}
+              onChange={(val) => setEditForm((p) => ({ ...p, source: val || p.source }))}
+            />
+          </FormField>
+          <FormField label="Deal value (₹)" error={formErrors.deal_value}>
+            <input
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="any"
+              value={editForm.deal_value}
+              onChange={(e) => {
+                setEditForm((p) => ({ ...p, deal_value: e.target.value }));
+                setFormErrors((prev) => clearFieldError(prev, 'deal_value'));
+              }}
+              placeholder="Optional"
+              className={formErrors.deal_value ? 'invalid' : ''}
+            />
+          </FormField>
+          <FormField label="Expected close date">
+            <DateTimePicker
+              mode="date"
+              value={editForm.expected_close_date}
+              onChange={(val) => setEditForm((p) => ({ ...p, expected_close_date: val || '' }))}
+            />
+          </FormField>
+          <FormField label="Tags" className="full">
+            <SearchableSelect
+              multiple
+              value={editForm.tag_ids}
+              valueLabels={tagLabels(editForm.tag_ids)}
+              placeholder={tagOptions.length ? 'Select tags' : 'No tags yet'}
+              options={tagOptions}
+              onChange={(vals) => setEditForm((p) => ({ ...p, tag_ids: vals || [] }))}
             />
           </FormField>
           {hasRole('admin') && (
@@ -1559,19 +2415,12 @@ export default function Leads() {
           <FormField label="Lead" className="full">
             <input value={manageLead?.name || ''} disabled />
           </FormField>
-          <FormField label="Product *" error={formErrors.product_id}>
-            <SearchableSelect
-              value={reminderForm.product_id}
-              valueLabel={reminderProductLabel}
-              placeholder="Select product"
-              loadOptions={loadProductsOptions}
-              invalid={Boolean(formErrors.product_id)}
-              onChange={(val, opt) => {
-                setReminderForm((p) => ({ ...p, product_id: val }));
-                setReminderProductLabel(opt?.label || '');
-                setFormErrors((prev) => clearFieldError(prev, 'product_id'));
-              }}
-            />
+          <FormField label="Product">
+            <div className="field-readonly" title="A callback is always for the lead's product">
+              <FiBox size={14} aria-hidden="true" />
+              {reminderProductLabel || manageLead?.product_name || '—'}
+              <small>From the lead</small>
+            </div>
           </FormField>
           <FormField label="Call back at *" error={formErrors.remind_at}>
             <DateTimePicker
@@ -1858,14 +2707,22 @@ export default function Leads() {
                       validators.required('Select a status'),
                       validators.oneOf(statuses, 'Select a valid status'),
                     ],
+                    lost_reason: [
+                      validators.custom((value, values) =>
+                        values.status === 'lost' && isEmpty(value)
+                          ? 'Select why these leads were lost'
+                          : ''
+                      ),
+                    ],
                   },
-                  { status: bulkStatus }
+                  { status: bulkStatus, lost_reason: bulkLostReason }
                 );
                 setFormErrors(result.errors);
                 if (!result.valid) return;
                 runBulk('status', {
                   status: bulkStatus,
                   note: bulkStatusNote || null,
+                  ...(bulkStatus === 'lost' ? { lost_reason: bulkLostReason } : {}),
                 });
               }}
             >
@@ -1886,6 +2743,20 @@ export default function Leads() {
             }}
           />
         </FormField>
+        {bulkStatus === 'lost' && (
+          <FormField label="Lost reason *" error={formErrors.lost_reason}>
+            <SearchableSelect
+              value={bulkLostReason}
+              placeholder="Why were these leads lost?"
+              options={lostReasonOptions}
+              invalid={Boolean(formErrors.lost_reason)}
+              onChange={(val) => {
+                setBulkLostReason(val || '');
+                setFormErrors((prev) => clearFieldError(prev, 'lost_reason'));
+              }}
+            />
+          </FormField>
+        )}
         <FormField label="Note (optional)" className="full">
           <textarea
             rows="3"
@@ -1896,18 +2767,74 @@ export default function Leads() {
         </FormField>
       </Modal>
 
+      <Modal
+        open={bulkModal === 'tag_add' || bulkModal === 'tag_remove'}
+        title={`${bulkModal === 'tag_remove' ? 'Remove tags from' : 'Add tags to'} ${selected.length} lead(s)`}
+        onClose={() => {
+          setBulkModal(null);
+          setFormErrors({});
+        }}
+        footer={
+          <>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                setBulkModal(null);
+                setFormErrors({});
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn primary"
+              onClick={() => {
+                if (!bulkTagIds.length) {
+                  setFormErrors({ tag_ids: 'Select at least one tag' });
+                  return;
+                }
+                runBulk(bulkModal, { tag_ids: toTagIds(bulkTagIds) });
+              }}
+            >
+              {bulkModal === 'tag_remove' ? 'Remove tags' : 'Add tags'}
+            </button>
+          </>
+        }
+      >
+        <FormField
+          label="Tags"
+          error={formErrors.tag_ids}
+          hint={tagOptions.length ? undefined : 'No tags yet — create tags in Settings first.'}
+        >
+          <SearchableSelect
+            multiple
+            value={bulkTagIds}
+            valueLabels={tagLabels(bulkTagIds)}
+            placeholder="Select tags"
+            options={tagOptions}
+            invalid={Boolean(formErrors.tag_ids)}
+            onChange={(vals) => {
+              setBulkTagIds(vals || []);
+              setFormErrors((prev) => clearFieldError(prev, 'tag_ids'));
+            }}
+          />
+        </FormField>
+      </Modal>
+
       <ConfirmModal
         open={Boolean(confirmDelete)}
         title={
           confirmDelete?.type === 'bulk'
-            ? `Delete ${confirmDelete.ids?.length || 0} lead(s)?`
-            : 'Delete lead?'
+            ? `Archive ${confirmDelete.ids?.length || 0} lead(s)?`
+            : 'Archive lead?'
         }
         message={
           confirmDelete?.type === 'bulk'
-            ? 'This action cannot be undone.'
-            : `Delete "${confirmDelete?.name || 'this lead'}"? This action cannot be undone.`
+            ? 'Archived leads are hidden from lists and reports. You can restore them from Archived.'
+            : `Archive "${confirmDelete?.name || 'this lead'}"? You can restore it from Archived.`
         }
+        confirmLabel="Archive"
         loading={deleting}
         onClose={() => !deleting && setConfirmDelete(null)}
         onConfirm={confirmDeleteAction}

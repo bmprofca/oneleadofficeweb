@@ -6,12 +6,16 @@ import {
   FiMoon,
   FiSun,
   FiLogOut,
-  FiUser,
   FiChevronDown,
   FiSettings,
+  FiChevronRight,
+  FiCalendar,
+  FiSearch,
 } from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import { getInitials } from '../utils/initials';
+import CommandPalette from './CommandPalette';
 
 const titles = {
   '/': 'Dashboard',
@@ -21,6 +25,12 @@ const titles = {
   '/appointments': 'Appointments',
   '/users': 'Users',
   '/profile': 'Profile',
+  '/tasks': 'My day',
+  '/pipeline': 'Pipeline',
+  '/reports': 'Reports',
+  '/duplicates': 'Duplicates',
+  '/audit': 'Audit log',
+  '/settings': 'Settings',
 };
 
 export default function TopNavbar({ onMenuClick }) {
@@ -29,8 +39,18 @@ export default function TopNavbar({ onMenuClick }) {
   const navigate = useNavigate();
   const location = useLocation();
   const [open, setOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
   const menuRef = useRef(null);
-  const title = titles[location.pathname] || 'OneLead';
+  const title =
+    titles[location.pathname] ||
+    (location.pathname.startsWith('/leads/') ? 'Lead details' : 'OneLead');
+  const today = new Date().toLocaleDateString(undefined, {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
 
   useEffect(() => {
     setOpen(false);
@@ -44,6 +64,17 @@ export default function TopNavbar({ onMenuClick }) {
     };
     document.addEventListener('mousedown', onClick);
     return () => document.removeEventListener('mousedown', onClick);
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setSearchOpen((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, []);
 
   const handleLogout = async () => {
@@ -63,12 +94,25 @@ export default function TopNavbar({ onMenuClick }) {
           <FiMenu size={18} />
         </button>
         <div className="topbar-title">
-          <h1>{title}</h1>
-          <p>Centralized lead management</p>
+          <p className="topbar-crumbs">
+            <span>OneLead</span>
+            <FiChevronRight size={13} />
+            <strong>{title}</strong>
+          </p>
         </div>
       </div>
 
       <div className="topbar-right">
+        <button type="button" className="topbar-search" onClick={() => setSearchOpen(true)}>
+          <FiSearch size={15} />
+          <span>Search leads…</span>
+          <kbd>{isMac ? '⌘' : 'Ctrl'} K</kbd>
+        </button>
+        <span className="topbar-date">
+          <FiCalendar size={13} />
+          {today}
+        </span>
+        <span className="topbar-divider" />
         <motion.button
           type="button"
           className="icon-btn"
@@ -87,9 +131,7 @@ export default function TopNavbar({ onMenuClick }) {
             onClick={() => setOpen((v) => !v)}
             aria-expanded={open}
           >
-            <span className="avatar">
-              <FiUser size={14} />
-            </span>
+            <span className="avatar">{getInitials(user?.name)}</span>
             <div className="topbar-user-meta">
               <strong>{user?.name}</strong>
             </div>
@@ -106,8 +148,11 @@ export default function TopNavbar({ onMenuClick }) {
                 transition={{ duration: 0.15 }}
               >
                 <div className="profile-dropdown-head">
-                  <strong>{user?.name}</strong>
-                  <span>{user?.phone || user?.email}</span>
+                  <span className="avatar lg">{getInitials(user?.name)}</span>
+                  <div>
+                    <strong>{user?.name}</strong>
+                    <span>{user?.phone || user?.email}</span>
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -133,6 +178,7 @@ export default function TopNavbar({ onMenuClick }) {
           </AnimatePresence>
         </div>
       </div>
+      <CommandPalette open={searchOpen} onClose={() => setSearchOpen(false)} />
     </header>
   );
 }

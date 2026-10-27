@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
-import { FiBell, FiCheck, FiEdit2, FiPlus, FiTrash2 } from 'react-icons/fi';
+import { Link } from 'react-router-dom';
+import { FiBell, FiBox, FiCalendar, FiCheck, FiClock, FiEdit2, FiPlus, FiSearch, FiTrash2 } from 'react-icons/fi';
 import api from '../api/client';
 import ActionMenu from '../components/ActionMenu';
 import ConfirmModal from '../components/ConfirmModal';
@@ -12,7 +13,12 @@ import RefreshButton from '../components/RefreshButton';
 import SearchableSelect from '../components/SearchableSelect';
 import { PanelTableSkeleton, SkeletonTable } from '../components/Skeleton';
 import { formatDateTime } from '../utils/format';
-import { loadLeadsOptions, loadProductsOptions } from '../utils/apiSelect';
+import '../styles/reminders.css';
+import { loadLeadsOptions, loadUsersOptions } from '../utils/apiSelect';
+import { apiError, formatRelative, isOverdue, mapsLink } from '../utils/crm';
+import ContactLinks from '../components/crm/ContactLinks';
+import OwnerChip from '../components/crm/OwnerChip';
+import { useAuth } from '../context/AuthContext';
 import {
   clearFieldError,
   validateForm,
@@ -25,10 +31,73 @@ const emptyForm = {
   remind_at: '',
   lead_id: '',
   product_id: '',
+  priority: 'normal',
 };
 
+const VIEWS = [
+  { key: 'open', label: 'Open', params: { completed: 'false' } },
+  { key: 'overdue', label: 'Overdue', params: { due: 'overdue' } },
+  { key: 'today', label: 'Today', params: { due: 'today' } },
+  { key: 'done', label: 'Done', params: { completed: 'true' } },
+  { key: 'all', label: 'All', params: {} },
+];
+
+const PRIORITIES = [
+  { value: 'high', label: 'High', tone: 'rose' },
+  { value: 'normal', label: 'Normal', tone: 'indigo' },
+  { value: 'low', label: 'Low', tone: 'slate' },
+];
+
+// Date presets for the callback-time filter; "custom" shows From / To pickers.
+const pad = (n) => String(n).padStart(2, '0');
+const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const addDays = (d, n) => {
+  const next = new Date(d);
+  next.setDate(next.getDate() + n);
+  return next;
+};
+const DATE_PRESETS = [
+  { value: 'any', label: 'Any date' },
+  { value: 'today', label: 'Today' },
+  { value: 'tomorrow', label: 'Tomorrow' },
+  { value: 'yesterday', label: 'Yesterday' },
+  { value: 'this_week', label: 'This week' },
+  { value: 'next_7', label: 'Next 7 days' },
+  { value: 'last_7', label: 'Last 7 days' },
+  { value: 'this_month', label: 'This month' },
+  { value: 'custom', label: 'Custom range…' },
+];
+
+function presetRange(preset, custom) {
+  const today = new Date();
+  switch (preset) {
+    case 'today':
+      return { from: ymd(today), to: ymd(today) };
+    case 'tomorrow':
+      return { from: ymd(addDays(today, 1)), to: ymd(addDays(today, 1)) };
+    case 'yesterday':
+      return { from: ymd(addDays(today, -1)), to: ymd(addDays(today, -1)) };
+    case 'this_week': {
+      const monday = addDays(today, -((today.getDay() + 6) % 7));
+      return { from: ymd(monday), to: ymd(addDays(monday, 6)) };
+    }
+    case 'next_7':
+      return { from: ymd(today), to: ymd(addDays(today, 6)) };
+    case 'last_7':
+      return { from: ymd(addDays(today, -6)), to: ymd(today) };
+    case 'this_month':
+      return {
+        from: ymd(new Date(today.getFullYear(), today.getMonth(), 1)),
+        to: ymd(new Date(today.getFullYear(), today.getMonth() + 1, 0)),
+      };
+    case 'custom':
+      return { from: custom.from || undefined, to: custom.to || undefined };
+    default:
+      return {};
+  }
+}
+
 const schema = {
-  product_id: [validators.required('Please select a product')],
   lead_id: [validators.required('Please select a lead')],
   remind_at: [
     validators.required('Callback date and time is required'),
@@ -43,6 +112,8 @@ const toPickerValue = (value) => {
 };
 
 export default function Reminders() {
+  const { hasRole } = useAuth();
+  const isAdmin = hasRole('admin');
   const [reminders, setReminders] = useState([]);
   const [form, setForm] = useState(emptyForm);
   const [leadLabel, setLeadLabel] = useState('');
@@ -58,11 +129,36 @@ export default function Reminders() {
   const [totalPages, setTotalPages] = useState(1);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [view, setView] = useState('open');
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [datePreset, setDatePreset] = useState('any');
+  const [customRange, setCustomRange] = useState({ from: '', to: '' });
+  const [salesman, setSalesman] = useState('');
+  const [salesmanLabel, setSalesmanLabel] = useState('');
+  const range = presetRange(datePreset, customRange);
+  const rangeInvalid = Boolean(range.from && range.to && range.from > range.to);
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
 
   const load = useCallback(async () => {
     try {
       setTableLoading(true);
-      const { data } = await api.get('/reminders', { params: { page, limit } });
+      const viewParams = VIEWS.find((v) => v.key === view)?.params || {};
+      const { data } = await api.get('/reminders', {
+        params: {
+          page,
+          limit,
+          ...viewParams,
+          search: debouncedSearch || undefined,
+          from: rangeInvalid ? undefined : range.from,
+          to: rangeInvalid ? undefined : range.to,
+          assigned_to: isAdmin && salesman ? salesman : undefined,
+        },
+      });
       if (Array.isArray(data)) {
         setReminders(data);
         setTotal(data.length);
@@ -78,7 +174,7 @@ export default function Reminders() {
       setTableLoading(false);
       setLoading(false);
     }
-  }, [page, limit]);
+  }, [page, limit, view, debouncedSearch, range.from, range.to, rangeInvalid, salesman, isAdmin]);
 
   useEffect(() => {
     load();
@@ -116,6 +212,7 @@ export default function Reminders() {
       remind_at: toPickerValue(item.remind_at),
       lead_id: item.lead_id || '',
       product_id: item.product_id != null ? String(item.product_id) : '',
+      priority: item.priority || 'normal',
     });
     setLeadLabel(item.lead_name || '');
     setProductLabel(item.product_name || '');
@@ -129,8 +226,10 @@ export default function Reminders() {
     setErrors(result.errors);
     if (!result.valid) return;
 
+    // The product always follows the lead, so it isn't sent.
+    const { product_id: _product, ...rest } = form;
     const payload = {
-      ...form,
+      ...rest,
       remind_at: toSqlDateTime(form.remind_at),
     };
 
@@ -154,12 +253,25 @@ export default function Reminders() {
 
   const toggleComplete = async (reminder) => {
     try {
-      await api.put(`/reminders/${reminder.id}`, {
-        is_completed: reminder.is_completed ? 0 : 1,
-      });
+      if (reminder.is_completed) {
+        await api.put(`/reminders/${reminder.id}`, { is_completed: 0 });
+      } else {
+        await api.post(`/reminders/${reminder.id}/complete`);
+        toast.success('Marked as called');
+      }
       load();
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to update');
+      toast.error(apiError(err, 'Failed to update'));
+    }
+  };
+
+  const snooze = async (reminder, minutes, label) => {
+    try {
+      await api.post(`/reminders/${reminder.id}/snooze`, { minutes });
+      toast.success(`Snoozed ${label}`);
+      load();
+    } catch (err) {
+      toast.error(apiError(err, 'Failed to snooze'));
     }
   };
 
@@ -208,12 +320,104 @@ export default function Reminders() {
       </header>
 
       <section className="panel leads-panel">
-        <div className="panel-header">
-          <h2>Callback list</h2>
+        <div className="leads-toolbar">
+          <div className="leads-toolbar-title">
+            <h2>Callback list</h2>
+            <span className="count-chip">{total} {view === 'all' ? 'total' : VIEWS.find((v) => v.key === view)?.label.toLowerCase()}</span>
+          </div>
+          <div className="rem-toolbar">
+            <div className="segmented" role="tablist" aria-label="Filter reminders">
+              {VIEWS.map((v) => (
+                <button
+                  key={v.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={view === v.key}
+                  className={view === v.key ? 'active' : ''}
+                  onClick={() => {
+                    setView(v.key);
+                    setPage(1);
+                  }}
+                >
+                  {v.label}
+                </button>
+              ))}
+            </div>
+            <div className="filter-search rem-search">
+              <FiSearch size={15} />
+              <input
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPage(1);
+                }}
+                placeholder="Search lead, phone or title…"
+              />
+            </div>
+          </div>
+          <div className="rem-filters">
+            <div className="rem-filter">
+              <FiCalendar size={14} aria-hidden="true" />
+              <SearchableSelect
+                className="rem-filter-select"
+                value={datePreset}
+                options={DATE_PRESETS}
+                clearable={datePreset !== 'any'}
+                searchable={false}
+                onChange={(val) => {
+                  setDatePreset(val || 'any');
+                  setPage(1);
+                }}
+              />
+            </div>
+            {datePreset === 'custom' ? (
+              <div className="rem-range">
+                <DateTimePicker
+                  mode="date"
+                  placeholder="From date"
+                  value={customRange.from}
+                  invalid={rangeInvalid}
+                  onChange={(val) => {
+                    setCustomRange((r) => ({ ...r, from: val }));
+                    setPage(1);
+                  }}
+                />
+                <span className="rem-range-sep">to</span>
+                <DateTimePicker
+                  mode="date"
+                  placeholder="To date"
+                  value={customRange.to}
+                  invalid={rangeInvalid}
+                  onChange={(val) => {
+                    setCustomRange((r) => ({ ...r, to: val }));
+                    setPage(1);
+                  }}
+                />
+              </div>
+            ) : null}
+            {isAdmin ? (
+              <div className="rem-filter">
+                <SearchableSelect
+                  className="rem-filter-select"
+                  value={salesman}
+                  valueLabel={salesmanLabel}
+                  placeholder="All salesmen"
+                  searchPlaceholder="Search salesman…"
+                  loadOptions={loadUsersOptions}
+                  onChange={(val, opt) => {
+                    setSalesman(val || '');
+                    setSalesmanLabel(opt?.label || '');
+                    setPage(1);
+                  }}
+                />
+              </div>
+            ) : null}
+            {rangeInvalid ? <span className="rem-range-error">“From” date is after “To” date</span> : null}
+          </div>
         </div>
         <div className="table-wrap">
           {tableLoading ? (
-            <SkeletonTable rows={8} cols={8} />
+            <SkeletonTable rows={8} cols={isAdmin ? 9 : 8} />
           ) : (
             <table>
               <thead>
@@ -223,6 +427,7 @@ export default function Reminders() {
                   <th>Lead</th>
                   <th>Phone</th>
                   <th>Title</th>
+                  {isAdmin && <th>Salesman</th>}
                   <th>Call back at</th>
                   <th>Status</th>
                   <th className="actions-col">Actions</th>
@@ -231,7 +436,11 @@ export default function Reminders() {
               <tbody>
                 {reminders.length === 0 && (
                   <tr>
-                    <td colSpan="8">No callback reminders yet.</td>
+                    <td colSpan={isAdmin ? 9 : 8}>
+                      {datePreset !== 'any' || debouncedSearch || salesman
+                        ? 'No reminders match these filters.'
+                        : 'No callback reminders yet.'}
+                    </td>
                   </tr>
                 )}
                 {reminders.map((item, index) => (
@@ -239,10 +448,26 @@ export default function Reminders() {
                     <td className="col-serial">{(page - 1) * limit + index + 1}</td>
                     <td>{item.product_name || '—'}</td>
                     <td>
-                      <strong>{item.lead_name}</strong>
+                      <Link to={`/leads/${encodeURIComponent(item.lead_id)}`} className="rem-lead-link">
+                        <strong>{item.lead_name}</strong>
+                      </Link>
                     </td>
-                    <td>{item.lead_phone || '—'}</td>
                     <td>
+                      <div>{item.lead_phone || '—'}</div>
+                      <ContactLinks
+                        className="rem-contact-links"
+                        phone={item.lead_phone}
+                        name={item.lead_name}
+                        map={mapsLink(item, 'lead_')}
+                      />
+                    </td>
+                    <td>
+                      <span
+                        className={`tone-dot tone-${
+                          PRIORITIES.find((p) => p.value === item.priority)?.tone || 'indigo'
+                        }`}
+                        title={`${item.priority || 'normal'} priority`}
+                      />{' '}
                       <strong>{item.title}</strong>
                       {item.description ? (
                         <div>
@@ -250,7 +475,24 @@ export default function Reminders() {
                         </div>
                       ) : null}
                     </td>
-                    <td>{formatDateTime(item.remind_at)}</td>
+                    {isAdmin && (
+                      <td>
+                        <OwnerChip name={item.lead_assigned_name || item.user_name} />
+                      </td>
+                    )}
+                    <td>
+                      <span
+                        className={
+                          !item.is_completed && isOverdue(item.remind_at) ? 'rem-overdue' : undefined
+                        }
+                        title={formatDateTime(item.remind_at)}
+                      >
+                        {formatDateTime(item.remind_at)}
+                      </span>
+                      {!item.is_completed ? (
+                        <small className="rem-relative">{formatRelative(item.remind_at)}</small>
+                      ) : null}
+                    </td>
                     <td>
                       <span
                         className={`status ${
@@ -277,6 +519,20 @@ export default function Reminders() {
                             ),
                             onClick: () => toggleComplete(item),
                           },
+                          ...(item.is_completed
+                            ? []
+                            : [
+                                {
+                                  label: 'Snooze 1 hour',
+                                  icon: <FiClock size={14} />,
+                                  onClick: () => snooze(item, 60, '1 hour'),
+                                },
+                                {
+                                  label: 'Snooze until tomorrow',
+                                  icon: <FiClock size={14} />,
+                                  onClick: () => snooze(item, 24 * 60, 'until tomorrow'),
+                                },
+                              ]),
                           {
                             label: 'Delete',
                             icon: <FiTrash2 size={14} />,
@@ -327,20 +583,6 @@ export default function Reminders() {
           onSubmit={handleSubmit}
           noValidate
         >
-          <FormField label="Product *" error={errors.product_id}>
-            <SearchableSelect
-              value={form.product_id}
-              valueLabel={productLabel}
-              placeholder="Select product"
-              loadOptions={loadProductsOptions}
-              invalid={Boolean(errors.product_id)}
-              onChange={(val, opt) => {
-                setForm((prev) => ({ ...prev, product_id: val }));
-                setProductLabel(opt?.label || '');
-                setErrors((prev) => clearFieldError(prev, 'product_id'));
-              }}
-            />
-          </FormField>
           <FormField label="Lead *" error={errors.lead_id}>
             <SearchableSelect
               value={form.lead_id}
@@ -349,18 +591,19 @@ export default function Reminders() {
               loadOptions={loadLeadsOptions}
               invalid={Boolean(errors.lead_id)}
               onChange={(val, opt) => {
-                setForm((prev) => ({
-                  ...prev,
-                  lead_id: val,
-                  product_id: opt?.product_id || prev.product_id,
-                }));
+                setForm((prev) => ({ ...prev, lead_id: val, product_id: opt?.product_id || '' }));
                 setLeadLabel(opt?.label || '');
-                if (opt?.product_id) setProductLabel(opt.product_name || '');
-                setErrors((prev) =>
-                  clearFieldError(clearFieldError(prev, 'lead_id'), 'product_id')
-                );
+                setProductLabel(opt?.product_name || '');
+                setErrors((prev) => clearFieldError(prev, 'lead_id'));
               }}
             />
+          </FormField>
+          <FormField label="Product">
+            <div className="field-readonly" title="A callback is always for the lead's product">
+              <FiBox size={14} aria-hidden="true" />
+              {productLabel || <span className="crm-muted">Select a lead first</span>}
+              <small>From the lead</small>
+            </div>
           </FormField>
           <FormField label="Call back at *" error={errors.remind_at}>
             <DateTimePicker
@@ -372,6 +615,21 @@ export default function Reminders() {
                 setErrors((prev) => clearFieldError(prev, 'remind_at'));
               }}
             />
+          </FormField>
+          <FormField label="Priority">
+            <div className="segmented">
+              {PRIORITIES.map((p) => (
+                <button
+                  key={p.value}
+                  type="button"
+                  className={form.priority === p.value ? 'active' : ''}
+                  onClick={() => setForm((prev) => ({ ...prev, priority: p.value }))}
+                >
+                  <span className={`tone-dot tone-${p.tone}`} />
+                  {p.label}
+                </button>
+              ))}
+            </div>
           </FormField>
           <FormField label="Title" error={errors.title}>
             <input
