@@ -288,7 +288,7 @@ export default function Leads() {
   const [createAssigneeLabel, setCreateAssigneeLabel] = useState('');
   const [importProductIds, setImportProductIds] = useState([]);
   const [importProductLabels, setImportProductLabels] = useState([]);
-  const [file, setFile] = useState(null);
+  const [files, setFiles] = useState([]);
   const [importing, setImporting] = useState(false);
 
   const [selected, setSelected] = useState([]);
@@ -568,11 +568,11 @@ export default function Leads() {
         ],
         file: [
           validators.custom((value) =>
-            value ? '' : 'Please choose an Excel or CSV file'
+            value?.length ? '' : 'Please choose at least one Excel or CSV file'
           ),
         ],
       },
-      { product_ids: importProductIds, file }
+      { product_ids: importProductIds, file: files }
     );
     setFormErrors(result.errors);
     if (!result.valid) return;
@@ -580,7 +580,7 @@ export default function Leads() {
     setImporting(true);
     try {
       const formData = new FormData();
-      formData.append('file', file);
+      files.forEach((f) => formData.append('files', f));
       formData.append('product_ids', JSON.stringify(importProductIds));
       if (hasRole('admin')) {
         formData.append('auto_assign', importAutoAssign ? 'true' : 'false');
@@ -601,7 +601,7 @@ export default function Leads() {
       if (data.auto_assigned) parts.push(`Auto-assigned ${data.auto_assigned}`);
       if (data.links_backfilled) parts.push(`Google links added to ${data.links_backfilled} existing`);
       toast.success(parts.join(' · '), { duration: 6000 });
-      setFile(null);
+      setFiles([]);
       setImportProductIds([]);
       setImportProductLabels([]);
       setImportTagIds([]);
@@ -1965,7 +1965,7 @@ export default function Leads() {
               className="btn primary"
               disabled={importing}
             >
-              {importing ? 'Importing...' : 'Import file'}
+              {importing ? 'Importing...' : files.length > 1 ? `Import ${files.length} files` : 'Import file'}
             </button>
           </>
         }
@@ -1986,37 +1986,45 @@ export default function Leads() {
               }}
             />
           </FormField>
-          <FormField label="Import file *" className="full" error={formErrors.file}>
+          <FormField label="Import files *" className="full" error={formErrors.file}>
             <label
-              className={`file-dropzone ${file ? 'has-file' : ''} ${
+              className={`file-dropzone ${files.length ? 'has-file' : ''} ${
                 formErrors.file ? 'invalid' : ''
               }`}
             >
               <input
                 type="file"
                 accept=".xlsx,.xls,.csv,text/csv"
+                multiple
                 className="file-dropzone-input"
                 onChange={(e) => {
-                  setFile(e.target.files?.[0] || null);
+                  setFiles(Array.from(e.target.files || []));
                   setFormErrors((prev) => clearFieldError(prev, 'file'));
                 }}
               />
               <span className="file-dropzone-icon" aria-hidden>
-                {file ? <FiCheck size={22} /> : <FiUpload size={22} />}
+                {files.length ? <FiCheck size={22} /> : <FiUpload size={22} />}
               </span>
               <span className="file-dropzone-copy">
-                {file ? (
+                {files.length ? (
                   <>
-                    <strong>{file.name}</strong>
+                    <strong title={files.map((f) => f.name).join(', ')}>
+                      {files.length === 1 ? files[0].name : `${files.length} files selected`}
+                    </strong>
                     <small>
-                      {(file.size / 1024).toFixed(1)} KB · Click to replace
+                      {(files.reduce((sum, f) => sum + f.size, 0) / 1024).toFixed(1)} KB · Click to replace
                     </small>
+                    {files.length > 1 && (
+                      <small className="file-dropzone-names">
+                        {files.map((f) => f.name).join(', ')}
+                      </small>
+                    )}
                   </>
                 ) : (
                   <>
-                    <strong>Drop file here or browse</strong>
+                    <strong>Drop files here or browse</strong>
                     <small>
-                      <FiFile size={12} /> .xlsx, .xls, or .csv
+                      <FiFile size={12} /> .xlsx, .xls, or .csv · select multiple files
                     </small>
                   </>
                 )}

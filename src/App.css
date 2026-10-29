@@ -3450,6 +3450,13 @@ select {
   font-size: var(--fs-xs);
 }
 
+.file-dropzone-copy small.file-dropzone-names {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ===== Appointments calendar ===== */
 .chart-body-calendar {
   min-height: 0;
